@@ -34,10 +34,10 @@ def compare_videos(window_titles, names):
 
 if __name__ == "__main__":
     folder_videos = "D:\\AirSim simulator\\FDD\\Optical flow\\OpenCV_sparse\\video_storage"
-    current_scenario = "Coen_City_1024_576_2"
-    name1 = "Coen_City_1024_576_2_s30_k30.5_3_15_3_5_1.2_0"
-    name2 = "Coen_City_1024_576_2_s30_k30.5_6_15_3_5_1.2_0"
-    name3 = "Coen_City_1024_576_2_s30_k30.5_3_30_3_5_1.2_0"
+    current_scenario = "Coen_city_256_144"
+    name1 = "Coen_city_256_144_PWC_s30_f30_k3_255"
+    name2 = "Coen_city_256_144_RAFT_s30_f30_k3"
+    name3 = "Coen_city_256_144_s30_k1"
     # name4 = "Coen_City_1024_576_2_s30_k10.5_3_15_6_5_1.2_0"
     # name5 = "Coen_City_1024_576_2_s30_k10.5_3_15_3_7_1.5_0"
     # name6 = "Coen_City_1024_576_2_s30_k10.5_3_15_3_5_1.2_1"

@@ -67,7 +67,13 @@ def lucas_kanade_method(video_path, image_step=1, fps_rate=30, max_corners=100):
         if not ret:
             break
         old_frame = cv2.cvtColor(old_frame, cv2.COLOR_BGR2GRAY)
-        p0 = cv2.goodFeaturesToTrack(old_gray, mask=None, **feature_params)
+        p1, st, err = cv2.calcOpticalFlowPyrLK(
+            buffer[-1], old_frame, buffer_p0[-1], None, **lk_params
+        )
+        # p0 = cv2.goodFeaturesToTrack(old_gray, mask=None, **feature_params)
+        good_new = p1[st == 1]
+        p0 = good_new.reshape(-1, 1, 2)
+        buffer_p0.append(p0.copy())
         buffer.append(old_frame)
         buffer_p0.append(p0)
 
@@ -110,7 +116,7 @@ def lucas_kanade_method(video_path, image_step=1, fps_rate=30, max_corners=100):
     out.release()
 
 
-def dense_optical_flow(dOF_alg, video_path, fps_rate=30, image_step=1, to_gray=False):
+def dense_optical_flow(dOF_alg, video_path, skip_frame=0, fps_rate=30, image_step=1, to_gray=False):
     # Read the video and first frame
     cap = cv2.VideoCapture(video_path)
     ret, old_frame = cap.read()
@@ -144,8 +150,8 @@ def dense_optical_flow(dOF_alg, video_path, fps_rate=30, image_step=1, to_gray=F
             break
         if to_gray:
             old_frame = cv2.cvtColor(old_frame, cv2.COLOR_BGR2GRAY)
-        buffer.append(old_frame)
-
+        buffer.append(old_frame.copy())
+    skip_frame_counter = 0
     while True:
         # Read the next frame
         ret, new_frame = cap.read()
@@ -159,6 +165,10 @@ def dense_optical_flow(dOF_alg, video_path, fps_rate=30, image_step=1, to_gray=F
 
         # Calculate Optical Flow
         buffer.append(new_frame.copy())
+        if skip_frame_counter == skip_frame:
+            buffer.pop(0)
+            skip_frame_counter = 0
+            continue
         flow = method(buffer.pop(0), new_frame, None, *params)
 
         # Encoding: convert the algorithm's output into Polar coordinates
@@ -171,6 +181,7 @@ def dense_optical_flow(dOF_alg, video_path, fps_rate=30, image_step=1, to_gray=F
         # Convert HSV image into BGR for demo
         bgr = cv2.cvtColor(hsv, cv2.COLOR_HSV2BGR)
         out.write(bgr)
+        skip_frame_counter += 1
         cv2.imshow("frame", frame_copy)
         cv2.imshow("optical flow", bgr)
         k = cv2.waitKey(25) & 0xFF
@@ -182,31 +193,40 @@ def dense_optical_flow(dOF_alg, video_path, fps_rate=30, image_step=1, to_gray=F
 if __name__ == "__main__":
     # User input
     # Build a list of image pairs to process
-    # img_folder = "D:\\AirSim simulator\\FDD\\Optical flow\\PWC-Net_TF\\tfoptflow\\example_images\\Coen_city_256_144"
-    # img_folder = "D:\\AirSim simulator\\FDD\\Optical flow\\PWC-Net_TF\\tfoptflow\\example_images\\Coen_city_512_288"
-    # img_folder = "D:\\AirSim simulator\\FDD\\Optical flow\\PWC-Net_TF\\tfoptflow\\example_images\\Coen_City_1024_576"
-    img_folder = "D:\\AirSim simulator\\FDD\\Optical flow\\PWC-Net_TF\\tfoptflow\\example_images\\Coen_City_1024_576_2"
-    # img_folder = "D:\\AirSim simulator\\FDD\\Optical flow\\PWC-Net_TF\\tfoptflow\\example_images\\Sintel_clean_ambush"
-    # img_folder = "D:\\AirSim simulator\\FDD\\Optical flow\\PWC-Net_TF\\tfoptflow\\example_images\\KITTI_2015"
+    # img_folder = "D:\\AirSim simulator\\FDD\\Optical flow\\example_images\\Coen_city_256_144"
+    # img_folder = "D:\\AirSim simulator\\FDD\\Optical flow\\example_images\\Coen_city_512_288"
+    # img_folder = "D:\\AirSim simulator\\FDD\\Optical flow\\example_images\\Coen_City_1024_576"
+    # img_folder = "D:\\AirSim simulator\\FDD\\Optical flow\\example_images\\Coen_City_1024_576_2"
+    # img_folder = "D:\\AirSim simulator\\FDD\\Optical flow\\example_images\\Sintel_clean_ambush"
+    img_folder = "D:\\AirSim simulator\\FDD\\Optical flow\\example_images\\KITTI_2015"
     fps_in = 2
     fps_out = 2
     start_frame = 0
     max_corners = 200
     step = 1
+    skip_frame = 0
     if "Coen" in img_folder:
         fps_in = 30
         fps_out = 30
         start_frame = 30
         max_corners = 200
-        step = 3
+        step = 10
+    elif "KITTI" in img_folder:
+        fps_in = 1
+        fps_out = 1
+        start_frame = 0
+        max_corners = 200
+        step = 1
+        skip_frame = 1
 
     # Dense OF user input
-    switch_dense = False
+    switch_dense = True
     dOF_algorithm = 'farneback'
 
     # Create video from frames
     out_folder, out_file_name, file_address = create_video(img_folder, fps_in, fps_out, start_frame)
     if switch_dense:
-        frames = dense_optical_flow(dOF_algorithm, file_address, fps_out, step, to_gray=True)
+        frames = dense_optical_flow(dOF_algorithm, file_address, fps_rate=fps_out, image_step=step, to_gray=True,
+                                    skip_frame=skip_frame)
     else:
         lucas_kanade_method(file_address, step, fps_out, max_corners)
