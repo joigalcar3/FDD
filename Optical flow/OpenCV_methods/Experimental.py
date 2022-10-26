@@ -2,6 +2,7 @@ import os
 import cv2
 import numpy as np
 import glob
+import time
 from skimage.io import imread
 from skimage.color import rgba2rgb
 
@@ -11,7 +12,7 @@ def create_video(img_folder, fps_rate_in=30, fps_rate_out=30, start_frame=0):
     image_path = os.path.join(img_folder, img_names[0])
     image = imread(image_path)
     frameSize = image.shape[1::-1]
-    cwd = os.getcwd()
+    cwd = os.path.dirname(os.getcwd())
     out_file_name = img_folder.split("\\")[-1] + f"_s{start_frame}_f{fps_rate_out}"
     out_folder = f'{cwd}\\video_storage\\' + img_folder.split("\\")[-1]
     if not os.path.exists(out_folder):
@@ -152,6 +153,8 @@ def dense_optical_flow(dOF_alg, video_path, skip_frame=0, fps_rate=30, image_ste
             old_frame = cv2.cvtColor(old_frame, cv2.COLOR_BGR2GRAY)
         buffer.append(old_frame.copy())
     skip_frame_counter = 0
+    time_lst = []
+    counter = 0
     while True:
         # Read the next frame
         ret, new_frame = cap.read()
@@ -165,11 +168,17 @@ def dense_optical_flow(dOF_alg, video_path, skip_frame=0, fps_rate=30, image_ste
 
         # Calculate Optical Flow
         buffer.append(new_frame.copy())
-        if skip_frame_counter == skip_frame:
+        if skip_frame_counter == skip_frame and skip_frame != 0:
             buffer.pop(0)
             skip_frame_counter = 0
             continue
+        start = time.time()
         flow = method(buffer.pop(0), new_frame, None, *params)
+        end = time.time()
+        elapsed_time = end - start
+        time_lst.append(elapsed_time)
+        print(f"Elapsed time of iter {counter}: {elapsed_time}")
+        counter += 1
 
         # Encoding: convert the algorithm's output into Polar coordinates
         mag, ang = cv2.cartToPolar(flow[..., 0], flow[..., 1])
@@ -187,6 +196,7 @@ def dense_optical_flow(dOF_alg, video_path, skip_frame=0, fps_rate=30, image_ste
         k = cv2.waitKey(25) & 0xFF
         if k == 27:
             break
+    print(f"Average elapsed time: {np.mean(time_lst)}")
     out.release()
 
 
@@ -196,9 +206,9 @@ if __name__ == "__main__":
     # img_folder = "D:\\AirSim simulator\\FDD\\Optical flow\\example_images\\Coen_city_256_144"
     # img_folder = "D:\\AirSim simulator\\FDD\\Optical flow\\example_images\\Coen_city_512_288"
     # img_folder = "D:\\AirSim simulator\\FDD\\Optical flow\\example_images\\Coen_City_1024_576"
-    # img_folder = "D:\\AirSim simulator\\FDD\\Optical flow\\example_images\\Coen_City_1024_576_2"
+    img_folder = "D:\\AirSim simulator\\FDD\\Optical flow\\example_images\\Coen_City_1024_576_2"
     # img_folder = "D:\\AirSim simulator\\FDD\\Optical flow\\example_images\\Sintel_clean_ambush"
-    img_folder = "D:\\AirSim simulator\\FDD\\Optical flow\\example_images\\KITTI_2015"
+    # img_folder = "D:\\AirSim simulator\\FDD\\Optical flow\\example_images\\KITTI_2015"
     fps_in = 2
     fps_out = 2
     start_frame = 0
@@ -208,9 +218,9 @@ if __name__ == "__main__":
     if "Coen" in img_folder:
         fps_in = 30
         fps_out = 30
-        start_frame = 30
+        start_frame = 55
         max_corners = 200
-        step = 10
+        step = 1
     elif "KITTI" in img_folder:
         fps_in = 1
         fps_out = 1
