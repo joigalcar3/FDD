@@ -1,3 +1,16 @@
+#!/usr/bin/env python
+"""Provides class StftGenerator that is a generator which provides spectrogram data of a complete flight.
+
+It provides the Short Time Fourier Transform of time intervals within each flight that is part of a training or
+validation dataset. Due to the size of the dataset, it is not possible to feed it directly to a model, so this
+generator progressively pulls flight sensor data, converts it to a Stft stack and feeds it to the model with the
+correct labels. It is assume that there is an output with every time step.
+
+A Stft stack is a tensor whose channels are the stft of all the sensor signals. For instance, the first channel could
+be the stft of the sensor measuremennt in the x direction, the second channel could be the sensor measurement in the
+y direction, etc.
+"""
+
 import tensorflow as tf
 import os
 import pandas as pd
@@ -6,14 +19,24 @@ import numpy as np
 import matplotlib.pyplot as plt
 np.random.seed(0)
 
-# TODO: implement example plotting
+"----------------------------------------------------------------------------------------------------------------------"
+__author__ = "Jose Ignacio de Alvear Cardenas"
+__copyright__ = "Copyright (C) 2022 Jose Ignacio"
+__credits__ = []
+__license__ = "MIT"
+__version__ = "1.0.1"
+__maintainer__ = "Jose Ignacio de Alvear Cardenas"
+__email__ = "j.i.dealvearcardenas@student.tudelft.nl"
+__status__ = "Production"
+"----------------------------------------------------------------------------------------------------------------------"
+
 # TODO: implement STFT over previous stored values
 
 
 class StftGenerator:
     def __init__(self, data_base_folder, flight_data_number, STFT_frequency, n_time_steps_des=None, f_max="inf",
-                 STFT_out_size=None, sensor_type="imu", sensor_features=None, recording_start_time=0,
-                 switch_include_angle_mode=False, switch_failure_modes=True):
+                 STFT_out_size=None, sensor_type="imu", sensor_features=None, recording_start_time=0, train_split=0.7,
+                 val_split=0.2, generator_type="train", switch_include_angle_mode=False, switch_failure_modes=True):
         """
         Creates generator for signal sensor data in order to feed it to TF model. The generator transforms the signal
         data into an spectrogram using a Short Time Fourier Transform (STFT)
@@ -25,6 +48,9 @@ class StftGenerator:
         :param STFT_out_size: the dimensions of the output STFT image
         :param sensor_type: the sensor type being analysed: imu, gps, magnetometer...
         :param sensor_features: the sensor features whose time signals will be applied the STFT
+        :param train_split: percentage of data used for training
+        :param val_split: percentage of data used for validation
+        :param generator_type: whether the generator serves for training or validation data
         :param recording_start_time: time at which the data starts to be used for FFT
         :param switch_include_angle_mode: whether a different propeller angle at the start of failure is considered a
         different failure mode
@@ -46,6 +72,18 @@ class StftGenerator:
         self.switch_failure_modes = switch_failure_modes
 
         self.flights_info = pd.read_csv(flights_info_directory)
+
+        if generator_type == "train":
+            slice_start = 0
+            slice_end = len(self.flights_info) * train_split
+        elif generator_type == "val":
+            slice_start = len(self.flights_info) * train_split
+            slice_end = len(self.flights_info) * (train_split+val_split)
+        else:
+            raise ValueError("Unrecognised generator type.")
+
+        self.flights_info = self.flights_info[int(slice_start):int(slice_end)]
+
         self.flight_names = self.flights_info["Sensor_folder"]
 
         self.nperseg = None
@@ -67,18 +105,7 @@ class StftGenerator:
             f'Dimensions STFT output image (height,width): {check_nan(self.STFT_out_size)}',
             f'Number of output training data features (features): {len(self.sensor_features)}'])
 
-    # @property
-    # def example(self):
-    #     """Get and cache an example batch of `inputs, labels` for plotting."""
-    #     result = getattr(self, '_example', None)
-    #     if result is None:
-    #         # No example batch was found, so get one from the `.train` dataset
-    #         result = next(iter(self.train))
-    #         # And cache it for next time
-    #         self._example = result
-    #     return result
-
-    def plot_stft(self, figure_number, flight_index, time_end, slice_duration=None, interactive=True):
+    def plot_stft(self, figure_number, flight_index=0, time_end=2, slice_duration=None, interactive=True):
         if slice_duration is None:
             slice_duration = 1 / self.STFT_frequency
         filename = f"{self.sensor_type}.csv"
@@ -234,7 +261,7 @@ class StftGenerator:
         # flight_stfts.shape => (time, height, width, features)
         flight_stfts = tf.transpose(flight_stfts, [0, 2, 3, 1])
         # flight_labels.shape => (time, features)
-        flight_labels = tf.expand_dims(tf.stack(flight_labels), axis=-1)
+        flight_labels = tf.cast(tf.expand_dims(tf.stack(flight_labels), axis=-1), tf.int8)
         return flight_stfts, flight_labels, False
 
     def select_sensor_features(self):

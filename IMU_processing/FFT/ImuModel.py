@@ -1,21 +1,36 @@
 import tensorflow as tf
+from keras.layers import ConvLSTM2D, BatchNormalization, Flatten, Dense
 
 
 class ImuModel(tf.keras.Model):
-    def __init__(self, units, out_steps, num_features):
-        super().__init__()
-        self.out_steps = out_steps
-        self.units = units
-        self.lstm_cell = tf.keras.layers.LSTMCell(units)
-        # Also wrap the LSTMCell in an RNN to simplify the `warmup` method.
-        self.lstm_rnn = tf.keras.layers.RNN(self.lstm_cell, return_state=True)
-        self.dense = tf.keras.layers.Dense(num_features)
+    def __init__(self, n_layers, filters, num_classes, **kwargs):
+        super().__init__(**kwargs)
+        self.filters = filters
+        # LSTM_Batch_layer = ConvLSTM2D(filters=self.filters, kernel_size=(3, 3), input_shape=(None, 40, 40, 1),
+        #                               padding='same', return_sequences=True)
+        # BN = BatchNormalization()
+        # self.LSTM_Batch_layers = [LSTM_Batch_layer, BN]
+        self.LSTM_Batch_layers = []
+        for _ in range(n_layers):
+            LSTM_Batch_layer = ConvLSTM2D(filters=self.filters, kernel_size=(3, 3), padding='same',
+                                          return_sequences=True)
+            BN = BatchNormalization()
+            self.LSTM_Batch_layers.extend([LSTM_Batch_layer, BN])
 
-    def warmup(self, inputs):
-        # inputs.shape => (batch, time, features)
-        # x.shape => (batch, lstm_units)
-        x, *state = self.lstm_rnn(inputs)
+        self.flatten = Flatten()
+        self.dense = Dense(num_classes)
 
-        # predictions.shape => (batch, features)
-        prediction = self.dense(x)
-        return prediction, state
+    def call(self, inputs):
+        x = self.LSTM_Batch_layers[0](inputs)
+        for i in range(1, len(self.LSTM_Batch_layers)):
+            x = self.LSTM_Batch_layers[i](x)
+        x = self.flatten(x)
+        output = self.dense(x)
+        return output
+
+
+if __name__ == "__main__":
+    imu_model = ImuModel(4, 40, 10)
+    _ = imu_model(tf.zeros((1, 10, 40, 40, 1)))
+    imu_model.summary()
+    print("H")
