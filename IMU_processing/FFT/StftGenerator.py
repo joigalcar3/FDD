@@ -17,6 +17,7 @@ import pandas as pd
 from scipy import signal
 import numpy as np
 import matplotlib.pyplot as plt
+
 np.random.seed(0)
 
 "----------------------------------------------------------------------------------------------------------------------"
@@ -30,13 +31,15 @@ __email__ = "j.i.dealvearcardenas@student.tudelft.nl"
 __status__ = "Production"
 "----------------------------------------------------------------------------------------------------------------------"
 
+
 # TODO: implement STFT over previous stored values
 
 
 class StftGenerator:
     def __init__(self, data_base_folder, flight_data_number, STFT_frequency, n_time_steps_des=None, f_max="inf",
                  STFT_out_size=None, sensor_type="imu", sensor_features=None, recording_start_time=0, train_split=0.7,
-                 val_split=0.2, generator_type="train", switch_include_angle_mode=False, switch_failure_modes=True):
+                 val_split=0.2, generator_type="train", switch_include_angle_mode=False, switch_failure_modes=True,
+                 switch_flatten=False):
         """
         Creates generator for signal sensor data in order to feed it to TF model. The generator transforms the signal
         data into an spectrogram using a Short Time Fourier Transform (STFT)
@@ -55,6 +58,7 @@ class StftGenerator:
         :param switch_include_angle_mode: whether a different propeller angle at the start of failure is considered a
         different failure mode
         :param switch_failure_modes: whether failure modes are considered or only failure has to be detected [0,1]
+        :param switch_flatten: whether the output images are flatten as a 1D vector
         """
         flight_data_folder = os.path.join(data_base_folder, "Flight_info")
         flights_info_directory = os.path.join(flight_data_folder,
@@ -70,6 +74,7 @@ class StftGenerator:
         self.recording_start_time = recording_start_time
         self.switch_include_angle_mode = switch_include_angle_mode
         self.switch_failure_modes = switch_failure_modes
+        self.switch_flatten = switch_flatten
 
         self.flights_info = pd.read_csv(flights_info_directory)
 
@@ -78,7 +83,7 @@ class StftGenerator:
             slice_end = len(self.flights_info) * train_split
         elif generator_type == "val":
             slice_start = len(self.flights_info) * train_split
-            slice_end = len(self.flights_info) * (train_split+val_split)
+            slice_end = len(self.flights_info) * (train_split + val_split)
         else:
             raise ValueError("Unrecognised generator type.")
 
@@ -94,6 +99,7 @@ class StftGenerator:
         self.select_sensor_features()
         return '\n'.join([
             f'Sensor data being processed: {self.sensor_type}',
+            f'Number of data points: {len(self.flight_names)}',
             f'Whether a different propeller angle at the start of failure is considered a different failure mode: '
             f'{self.switch_include_angle_mode}',
             f'Whether failure modes are considered or only failure has to be detected: {self.switch_failure_modes}',
@@ -104,6 +110,17 @@ class StftGenerator:
             f'Number of time steps per flight/datapoint (time): {check_nan(self.n_time_steps_des)}',
             f'Dimensions STFT output image (height,width): {check_nan(self.STFT_out_size)}',
             f'Number of output training data features (features): {len(self.sensor_features)}'])
+
+    @property
+    def example(self):
+        """Get and cache an example batch of `inputs, labels` for plotting."""
+        result = getattr(self, '_example', None)
+        if result is None:
+            # No example batch was found, so get one from the `.train` dataset
+            result = next(iter(self()))
+            # And cache it for next time
+            self._example = result
+        return result
 
     def plot_stft(self, figure_number, flight_index=0, time_end=2, slice_duration=None, interactive=True):
         if slice_duration is None:
@@ -118,7 +135,7 @@ class StftGenerator:
         failure_bool = self.flights_info.iloc[flight_index]["Failure"]
 
         # Obtain flight information
-        failure_timestamp, failure_mode = self.extract_flight_info_data(flight_index, flight_sensor_data)
+        failure_timestamp, failure_mode, _ = self.extract_flight_info_data(flight_index, flight_sensor_data)
 
         if interactive:
             print(f"Failure timestamp: {failure_timestamp}")
@@ -226,12 +243,18 @@ class StftGenerator:
         self.nperseg = (len(d_timestamps) / (d_timestamps.iloc[-1] - d_timestamps.iloc[0]) * slice_duration) // 4
 
         # Compute the number of time steps
-        n_timesteps = int((d_timestamps.iloc[-1]-self.recording_start_time)/slice_duration)
+        n_timesteps = int((d_timestamps.iloc[-1] - self.recording_start_time) / slice_duration)
+        if failure_timestamp != -1:
+            # guarantees start before failure
+            distance_failure = max(int((failure_timestamp - self.recording_start_time) / slice_duration) - 5, 0)
+        else:
+            distance_failure = float("inf")
         factor_starting = 1
         if self.n_time_steps_des is not None:
             if n_timesteps < self.n_time_steps_des:
                 return 0, 0, True
-            factor_starting = np.random.choice(range(n_timesteps-self.n_time_steps_des + 1)) + 1
+            factor_starting = np.random.choice(
+                range(min(n_timesteps - self.n_time_steps_des, distance_failure) + 1)) + 1
 
         # Run stft for every time slice
         sample_start_time = self.recording_start_time + factor_starting * slice_duration
@@ -241,7 +264,8 @@ class StftGenerator:
             sample_end_time = d_timestamps.iloc[-1] + slice_duration
         flight_stfts = []
         flight_labels = []
-        for time_end in np.arange(sample_start_time, sample_end_time, slice_duration):
+        for time_end in np.linspace(sample_start_time, sample_end_time,
+                                    round((sample_end_time - sample_start_time) / slice_duration), endpoint=False):
             if time_end > d_timestamps.iloc[-1]:
                 break
             time_slice_index = d_timestamps[
@@ -251,7 +275,7 @@ class StftGenerator:
             if self.STFT_out_size is not None:
                 stft_stack = tf.image.resize_with_pad(stft_stack, *self.STFT_out_size)
             flight_stfts.append(stft_stack)
-            if failure_timestamp <= (data_slice["# timestamps"].iloc[-1]-flight_start_time)*1e-9 and \
+            if failure_timestamp <= (data_slice["# timestamps"].iloc[-1] - flight_start_time) * 1e-9 and \
                     failure_timestamp != -1:
                 flight_labels.append(failure_mode)
             else:
@@ -298,25 +322,29 @@ class StftGenerator:
         :return: flight_sensor_data, failure_timestamp, failure_mode
         """
         flight_info = self.flights_info.iloc[flight_index]
-        flight_start_time = flight_sensor_data['# timestamps'][0]
-        failure_timestamp = (flight_info["Failure_timestamp"] - flight_start_time) * 1e-9
-        damage_coefficient = flight_info["Failure_magnitude"]
-        # start_propeller_angle = flight_info["Start_propeller_angle"]
-        failure_mode = flight_info["Failure_mode"]
         failure_bool = flight_info["Failure"]
+        raw_failure_timestamp = flight_info["Failure_timestamp"]
+        if np.isnan(raw_failure_timestamp):
+            return 0, 0, True
 
-        if not failure_bool:
-            damaged_propeller = -1
-        else:
+        if failure_bool:
+            flight_start_time = flight_sensor_data['# timestamps'][0]
+            failure_timestamp = (raw_failure_timestamp - flight_start_time) * 1e-9
+            failure_mode = flight_info["Failure_mode"]
             damaged_propeller = (failure_mode - 1) // 16
 
-        if not self.switch_include_angle_mode:
-            failure_mode = (damage_coefficient / 0.2 - 1 + damaged_propeller * 4) + 1
+            if not self.switch_include_angle_mode:
+                damage_coefficient = flight_info["Failure_magnitude"]
+                failure_mode = (damage_coefficient / 0.2 - 1 + damaged_propeller * 4) + 1
 
-        if not self.switch_failure_modes:
-            failure_mode = 1
+            if not self.switch_failure_modes:
+                failure_mode = 1
+        else:
+            failure_timestamp = -1
+            failure_mode = 0
+        # start_propeller_angle = flight_info["Start_propeller_angle"]
 
-        return failure_timestamp, failure_mode
+        return failure_timestamp, failure_mode, False
 
     def __call__(self):
         filename = f"{self.sensor_type}.csv"
@@ -328,13 +356,16 @@ class StftGenerator:
             flight_sensor_data = self.extract_flight_sensor_data(i, filename)
 
             # Obtain flight information
-            failure_timestamp, failure_mode = self.extract_flight_info_data(i, flight_sensor_data)
+            failure_timestamp, failure_mode, skip_flag = self.extract_flight_info_data(i, flight_sensor_data)
+            if skip_flag: continue
 
             # Obtain the model input data and the labels
             stft_frames, flight_labels, skip_flag = self.convert_to_stft(flight_sensor_data, failure_timestamp,
                                                                          failure_mode)
-            if skip_flag:
-                continue
+            if skip_flag: continue
+
+            if self.switch_flatten:
+                stft_frames = tf.reshape(stft_frames, [stft_frames.shape[0], -1])
 
             yield stft_frames, flight_labels
 
@@ -376,25 +407,25 @@ def compute_maximum_dataset_sample_timesteps(data_base_folder, flight_data_numbe
 
 
 if __name__ == "__main__":
-    #%% User input
+    # %% User input
     base_folder = "D:\\AirSim_project_512_288"
     flight_number = 43
     sampling_frequency = 10
     start_time = 1.0
     desired_timesteps = 55
 
-    #%% Plot input
+    # %% Plot input
     figure_number = 1
     end_time = 2
     duration_slice = 1
     flight_index = 0
-    interactive_plot_input = False
+    interactive_plot_input = True
 
     # minimum_length, length_lst = compute_maximum_dataset_sample_timesteps(base_folder, flight_number,
     #                                                                       sampling_frequency, start_time)
 
     stft_generator = StftGenerator(base_folder, flight_number, sampling_frequency, recording_start_time=start_time,
-                                   n_time_steps_des=desired_timesteps)
+                                   n_time_steps_des=desired_timesteps, switch_flatten=True, switch_failure_modes=False)
     figure_number = stft_generator.plot_stft(figure_number, flight_index, end_time, duration_slice,
                                              interactive=interactive_plot_input)
     stft_generator = stft_generator()
