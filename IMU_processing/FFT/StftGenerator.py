@@ -33,13 +33,14 @@ __status__ = "Production"
 
 
 # TODO: implement STFT over previous stored values
+# TODO: IMU saturation
 
 
 class StftGenerator:
     def __init__(self, data_base_folder, flight_data_number, STFT_frequency, n_time_steps_des=None, f_max="inf",
                  STFT_out_size=None, sensor_type="imu", sensor_features=None, recording_start_time=0, train_split=0.7,
                  val_split=0.2, generator_type="train", switch_include_angle_mode=False, switch_failure_modes=True,
-                 switch_flatten=False):
+                 switch_flatten=False, shuffle_flights=False, switch_single_frame=False):
         """
         Creates generator for signal sensor data in order to feed it to TF model. The generator transforms the signal
         data into an spectrogram using a Short Time Fourier Transform (STFT)
@@ -59,6 +60,9 @@ class StftGenerator:
         different failure mode
         :param switch_failure_modes: whether failure modes are considered or only failure has to be detected [0,1]
         :param switch_flatten: whether the output images are flatten as a 1D vector
+        :param shuffle_flights: whether the imported flights are shuffled. If shuffled, the generator will not provide
+        every time in the same order.
+        :param switch_single_frame: whether single frames are returned instead of an array of sequential data
         """
         flight_data_folder = os.path.join(data_base_folder, "Flight_info")
         flights_info_directory = os.path.join(flight_data_folder,
@@ -66,6 +70,7 @@ class StftGenerator:
                                                           os.listdir(flight_data_folder))))
         self.sensor_data_directory = os.path.join(data_base_folder, "Sensor_data")
         self.STFT_frequency = STFT_frequency
+        self.slice_duration = 1 / self.STFT_frequency
         self.n_time_steps_des = n_time_steps_des
         self.f_max = f_max
         self.STFT_out_size = STFT_out_size
@@ -75,8 +80,12 @@ class StftGenerator:
         self.switch_include_angle_mode = switch_include_angle_mode
         self.switch_failure_modes = switch_failure_modes
         self.switch_flatten = switch_flatten
+        self.shuffle_flights = shuffle_flights
+        self.switch_single_frame = switch_single_frame
 
         self.flights_info = pd.read_csv(flights_info_directory)
+        if self.shuffle_flights:
+            self.flights_info = self.flights_info.sample(frac=1).reset_index()
 
         if generator_type == "train":
             slice_start = 0
@@ -103,6 +112,9 @@ class StftGenerator:
             f'Whether a different propeller angle at the start of failure is considered a different failure mode: '
             f'{self.switch_include_angle_mode}',
             f'Whether failure modes are considered or only failure has to be detected: {self.switch_failure_modes}',
+            f'Whether the output has been flattened (heightxwidth): {self.switch_flatten}',
+            f'Whether the flights have been shuffled with every epoch: {self.shuffle_flights}'
+            f'Whether the generator returns single frames instead of sequences: {self.switch_single_frame}'
             f'Frequency at which STFT is executed: {self.STFT_frequency} [Hz]',
             f'Maximum plotted STFT frequency: {check_nan(self.f_max)} [Hz]',
             f'Initial ignored seconds of every flight: {self.recording_start_time} [s]',
@@ -226,50 +238,63 @@ class StftGenerator:
             stft_stack.append(stft_image[:, :, 0])
         return stft_stack, f[np.where(f <= float(self.f_max))[0]], t
 
-    def convert_to_stft(self, flight_sensor_data, failure_timestamp, failure_mode):
+    def compute_slice_start_end(self, flight_sensor_data, failure_timestamp):
         """
-        Convert flight IMU data into fft images at a self.STFT_frequency.
+        Compute the start and the end of the data interval
         :param flight_sensor_data: flight sensor data
         :param failure_timestamp: timestamp at which failure takes place
-        :param failure_mode: mode of failure. It indicates the propeller and the magnitude of the failure
-        :return: IMU FFT images of self.FFT_size
+        :return: the start and end times of the interval, as well as the timestamps of the flight in seconds, starting
+        at 0
         """
-        slice_duration = 1 / self.STFT_frequency
-
         flight_start_time = flight_sensor_data['# timestamps'][0]
         d_timestamps = (flight_sensor_data['# timestamps'] - flight_start_time) * 1e-9
 
-        # Compute the number of data points used in the stft window
-        self.nperseg = (len(d_timestamps) / (d_timestamps.iloc[-1] - d_timestamps.iloc[0]) * slice_duration) // 4
-
         # Compute the number of time steps
-        n_timesteps = int((d_timestamps.iloc[-1] - self.recording_start_time) / slice_duration)
+        n_timesteps = int((d_timestamps.iloc[-1] - self.recording_start_time) / self.slice_duration)
         if failure_timestamp != -1:
             # guarantees start before failure
-            distance_failure = max(int((failure_timestamp - self.recording_start_time) / slice_duration) - 5, 0)
+            distance_failure = max(int((failure_timestamp - self.recording_start_time) / self.slice_duration) - 5, 0)
         else:
             distance_failure = float("inf")
         factor_starting = 1
         if self.n_time_steps_des is not None:
             if n_timesteps < self.n_time_steps_des:
-                return 0, 0, True
+                return 0, 0, 0, 0, True
             factor_starting = np.random.choice(
                 range(min(n_timesteps - self.n_time_steps_des, distance_failure) + 1)) + 1
 
         # Run stft for every time slice
-        sample_start_time = self.recording_start_time + factor_starting * slice_duration
+        sample_start_time = self.recording_start_time + factor_starting * self.slice_duration
         if self.n_time_steps_des is not None:
-            sample_end_time = sample_start_time + self.n_time_steps_des * slice_duration
+            sample_end_time = sample_start_time + self.n_time_steps_des * self.slice_duration
         else:
-            sample_end_time = d_timestamps.iloc[-1] + slice_duration
+            sample_end_time = d_timestamps.iloc[-1] + self.slice_duration
+
+        return sample_start_time, sample_end_time, d_timestamps, flight_start_time, False
+
+    def convert_to_stft(self, flight_sensor_data, failure_timestamp, failure_mode, d_timestamps, flight_start_time,
+                        sample_start_time, sample_end_time):
+        """
+        Convert flight IMU data into fft images at a self.STFT_frequency.
+        :param flight_sensor_data: flight sensor data
+        :param failure_timestamp: timestamp at which failure takes place
+        :param failure_mode: mode of failure. It indicates the propeller and the magnitude of the failure
+        :param d_timestamps: the flight time stamps in seconds starting at 0
+        :param sample_start_time: time at which the data interval starts
+        :param sample_end_time: time at which the data interval ends
+        :return: IMU FFT images of self.FFT_size
+        """
+        # Compute the number of data points used in the stft window
+        self.nperseg = (len(d_timestamps) / (d_timestamps.iloc[-1] - d_timestamps.iloc[0]) * self.slice_duration) // 4
+
         flight_stfts = []
         flight_labels = []
         for time_end in np.linspace(sample_start_time, sample_end_time,
-                                    round((sample_end_time - sample_start_time) / slice_duration), endpoint=False):
+                                    round((sample_end_time - sample_start_time) / self.slice_duration), endpoint=False):
             if time_end > d_timestamps.iloc[-1]:
                 break
             time_slice_index = d_timestamps[
-                (time_end - slice_duration <= d_timestamps) & (d_timestamps < time_end)].index
+                (time_end - self.slice_duration <= d_timestamps) & (d_timestamps < time_end)].index
             data_slice = flight_sensor_data.iloc[time_slice_index]
             stft_stack, _, _ = self.compute_slice_stft(data_slice)
             if self.STFT_out_size is not None:
@@ -286,7 +311,7 @@ class StftGenerator:
         flight_stfts = tf.transpose(flight_stfts, [0, 2, 3, 1])
         # flight_labels.shape => (time, features)
         flight_labels = tf.cast(tf.expand_dims(tf.stack(flight_labels), axis=-1), tf.int8)
-        return flight_stfts, flight_labels, False
+        return flight_stfts, flight_labels
 
     def select_sensor_features(self):
         """
@@ -331,7 +356,7 @@ class StftGenerator:
             flight_start_time = flight_sensor_data['# timestamps'][0]
             failure_timestamp = (raw_failure_timestamp - flight_start_time) * 1e-9
             failure_mode = flight_info["Failure_mode"]
-            damaged_propeller = (failure_mode - 1) // 16
+            damaged_propeller = (failure_mode - 2) // 16
 
             if not self.switch_include_angle_mode:
                 damage_coefficient = flight_info["Failure_magnitude"]
@@ -350,8 +375,14 @@ class StftGenerator:
         filename = f"{self.sensor_type}.csv"
         self.select_sensor_features()
 
+        if self.shuffle_flights:
+            flights_info = self.flights_info.sample(frac=1).reset_index().drop("index", axis=1)
+            flight_names = flights_info["Sensor_folder"]
+        else:
+            flight_names = self.flight_names
+
         # Iterating over all the flights
-        for i in range(len(self.flight_names)):
+        for i in range(len(flight_names)):
             # Retrieving flight sensor data information
             flight_sensor_data = self.extract_flight_sensor_data(i, filename)
 
@@ -359,15 +390,26 @@ class StftGenerator:
             failure_timestamp, failure_mode, skip_flag = self.extract_flight_info_data(i, flight_sensor_data)
             if skip_flag: continue
 
-            # Obtain the model input data and the labels
-            stft_frames, flight_labels, skip_flag = self.convert_to_stft(flight_sensor_data, failure_timestamp,
-                                                                         failure_mode)
+            # Obtain the interval start and end times
+            sample_start_time, sample_end_time, d_timestamps, flight_start_time, skip_flag = \
+                self.compute_slice_start_end(flight_sensor_data, failure_timestamp)
             if skip_flag: continue
+
+            # Obtain the model input data and the labels
+            stft_frames, flight_labels = self.convert_to_stft(flight_sensor_data, failure_timestamp,
+                                                              failure_mode, d_timestamps, flight_start_time,
+                                                              sample_start_time, sample_end_time)
 
             if self.switch_flatten:
                 stft_frames = tf.reshape(stft_frames, [stft_frames.shape[0], -1])
 
-            yield stft_frames, flight_labels
+            if self.switch_single_frame:
+                for i in range(stft_frames.shape[0]):
+                    stft_frame = stft_frames[i]
+                    flight_label = flight_labels[i]
+                    yield stft_frame, flight_label
+            else:
+                yield stft_frames, flight_labels
 
 
 def compute_maximum_dataset_sample_timesteps(data_base_folder, flight_data_number, STFT_frequency,
@@ -425,9 +467,10 @@ if __name__ == "__main__":
     #                                                                       sampling_frequency, start_time)
 
     stft_generator = StftGenerator(base_folder, flight_number, sampling_frequency, recording_start_time=start_time,
-                                   n_time_steps_des=desired_timesteps, switch_flatten=True, switch_failure_modes=False)
-    figure_number = stft_generator.plot_stft(figure_number, flight_index, end_time, duration_slice,
-                                             interactive=interactive_plot_input)
+                                   n_time_steps_des=desired_timesteps, switch_flatten=True, switch_failure_modes=True,
+                                   shuffle_flights=True, switch_single_frame=True)
+    # figure_number = stft_generator.plot_stft(figure_number, flight_index, end_time, duration_slice,
+    #                                          interactive=interactive_plot_input)
     stft_generator = stft_generator()
     for i in range(5000):
         frames, labels = next(stft_generator)

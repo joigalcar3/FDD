@@ -153,3 +153,9 @@ IMU_processing/FFT/logs/fit/20221102-021746/train/
 IMU_processing/FFT/logs/fit/20221102-174505/train/
 /IMU_processing/FFT/logs/fit/
 /IMU_processing/FFT/checkpoints/
+/IMU_processing/FFT/Old/
+/IMU_processing/FFT/logs/
+
+*.pickle
+
+IMU_processing/FFT/csv_logs/
