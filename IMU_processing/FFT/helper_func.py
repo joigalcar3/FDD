@@ -2,12 +2,13 @@ import tensorflow as tf
 from datetime import datetime
 
 
-def convert_to_dataset(generator, BATCH_SIZE, **kwargs):
+def convert_to_dataset(generator, BATCH_SIZE, switch_shuffle_buffer=True, **kwargs):
     """
     Converts a generator to a tf.data.Dataset ready to be fed to a model
     :param generator: the generator class
     :param BATCH_SIZE: the size of the batch
     (https://www.tensorflow.org/api_docs/python/tf/data/Dataset#prefetch)
+    :param switch_shuffle_buffer: whether the shuffle buffer should be activated
     :param kwargs: the inputs to the generator
     :return: the training and validation dataset objects
     """
@@ -24,10 +25,12 @@ def convert_to_dataset(generator, BATCH_SIZE, **kwargs):
 
     # Adding the batch dimension
     AUTOTUNE = tf.data.AUTOTUNE
-    train_ds = train_ds.shuffle(buffer_size=BATCH_SIZE*10, reshuffle_each_iteration=True).\
-        prefetch(buffer_size=AUTOTUNE).batch(BATCH_SIZE)
-    val_ds = val_ds.shuffle(buffer_size=BATCH_SIZE*10, reshuffle_each_iteration=True).\
-        prefetch(buffer_size=AUTOTUNE).batch(BATCH_SIZE)
+    if switch_shuffle_buffer:
+        train_ds = train_ds.shuffle(buffer_size=BATCH_SIZE*10, reshuffle_each_iteration=True)
+        val_ds = val_ds.shuffle(buffer_size=BATCH_SIZE*10, reshuffle_each_iteration=True)
+
+    train_ds = train_ds.prefetch(buffer_size=AUTOTUNE).batch(BATCH_SIZE)
+    val_ds = val_ds.prefetch(buffer_size=AUTOTUNE).batch(BATCH_SIZE)
 
     # Print the shapes of the data
     # train_frames, train_labels = next(iter(train_ds))
@@ -100,3 +103,6 @@ class BatchLogging(tf.keras.Model):
     def call(self, x):
         x = self.model(x)
         return x
+
+
+

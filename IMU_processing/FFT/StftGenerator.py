@@ -17,6 +17,11 @@ import pandas as pd
 from scipy import signal
 import numpy as np
 import matplotlib.pyplot as plt
+import cv2
+
+from IMU_processing.FFT.RaftBackbone import RaftBackbone
+# TODO: synchronise camera and IMU
+# TODO: try reduce size of image, perform fft and then conv
 
 np.random.seed(0)
 
@@ -34,13 +39,15 @@ __status__ = "Production"
 
 # TODO: implement STFT over previous stored values
 # TODO: IMU saturation
+# TODO: FFT of camera OF image
 
 
 class StftGenerator:
     def __init__(self, data_base_folder, flight_data_number, STFT_frequency, n_time_steps_des=None, f_max="inf",
-                 STFT_out_size=None, sensor_type="imu", sensor_features=None, recording_start_time=0, train_split=0.7,
-                 val_split=0.2, generator_type="train", switch_include_angle_mode=False, switch_failure_modes=True,
-                 switch_flatten=False, shuffle_flights=False, switch_single_frame=False):
+                 STFT_out_size=None, sensor_type="imu", camera_name="front", sensor_features=None,
+                 recording_start_time=0, train_split=0.7, val_split=0.2, generator_type="train",
+                 switch_include_angle_mode=False, switch_failure_modes=True, switch_flatten=False,
+                 shuffle_flights=False, switch_single_frame=False, switch_include_camera=False):
         """
         Creates generator for signal sensor data in order to feed it to TF model. The generator transforms the signal
         data into an spectrogram using a Short Time Fourier Transform (STFT)
@@ -51,6 +58,7 @@ class StftGenerator:
         :param f_max: the maximum considered frequency considered in the spectrogram
         :param STFT_out_size: the dimensions of the output STFT image
         :param sensor_type: the sensor type being analysed: imu, gps, magnetometer...
+        :param camera_name: the name of the camera from which the visual data is retrieved
         :param sensor_features: the sensor features whose time signals will be applied the STFT
         :param train_split: percentage of data used for training
         :param val_split: percentage of data used for validation
@@ -63,6 +71,7 @@ class StftGenerator:
         :param shuffle_flights: whether the imported flights are shuffled. If shuffled, the generator will not provide
         every time in the same order.
         :param switch_single_frame: whether single frames are returned instead of an array of sequential data
+        :param switch_include_camera: whether camera data should be include as output from the generator
         """
         flight_data_folder = os.path.join(data_base_folder, "Flight_info")
         flights_info_directory = os.path.join(flight_data_folder,
@@ -75,6 +84,8 @@ class StftGenerator:
         self.f_max = f_max
         self.STFT_out_size = STFT_out_size
         self.sensor_type = sensor_type
+        self.sensor_filename = f"{self.sensor_type}.csv"
+        self.camera_name = camera_name
         self.sensor_features = sensor_features
         self.recording_start_time = recording_start_time
         self.switch_include_angle_mode = switch_include_angle_mode
@@ -82,23 +93,47 @@ class StftGenerator:
         self.switch_flatten = switch_flatten
         self.shuffle_flights = shuffle_flights
         self.switch_single_frame = switch_single_frame
+        self.switch_include_camera = switch_include_camera
 
-        self.flights_info = pd.read_csv(flights_info_directory)
+        complete_flights_info = pd.read_csv(flights_info_directory)
+        total_n_flights = len(complete_flights_info)
         if self.shuffle_flights:
-            self.flights_info = self.flights_info.sample(frac=1).reset_index()
+            complete_flights_info = complete_flights_info.sample(frac=1).reset_index()
 
         if generator_type == "train":
             slice_start = 0
-            slice_end = len(self.flights_info) * train_split
+            slice_end = total_n_flights * train_split
         elif generator_type == "val":
-            slice_start = len(self.flights_info) * train_split
-            slice_end = len(self.flights_info) * (train_split + val_split)
+            slice_start = total_n_flights * train_split
+            slice_end = total_n_flights * (train_split + val_split)
         else:
             raise ValueError("Unrecognised generator type.")
 
-        self.flights_info = self.flights_info[int(slice_start):int(slice_end)]
+        self.flights_info = complete_flights_info[int(slice_start):int(slice_end)]
+        self.raw_flights_info = self.flights_info.copy()
 
         self.flight_names = self.flights_info["Sensor_folder"]
+
+        if self.switch_include_camera:
+            self.raft_backbone = RaftBackbone()
+            folder_images = os.path.join(self.sensor_data_directory, self.flight_names.iloc[0],
+                                         self.camera_name)
+            image_name = os.listdir(folder_images)[1]
+            dummy_image, _ = self.raft_backbone.predict(folder_images, [image_name], [image_name])
+            IMG_SHAPE = dummy_image.shape
+            # Decision between mobilenetv2 mobilenetv3large and mobilenetv3small.
+            # Mobilenetv3 is more accurate and faster than mobilenetv2
+            # Mobilenetv3small with alpha=1.0 could run at a frequency of 60.48 Hz
+            # Mobilenetv3small with alpha=0.75 could run at a frequency of 74.82 Hz
+            # Why mobilenets: https://keras.io/api/applications/#usage-examples-for-image-classification-models
+            # Explanation: https://towardsdatascience.com/everything-you-need-to-know-about-mobilenetv3-and-its-comparison-with-previous-versions-a5d5e5a6eeaa
+            # APIs: https://keras.io/api/applications/mobilenet/
+            self.conv_feature_extractor = tf.keras.applications.MobileNetV3Small(input_shape=IMG_SHAPE,
+                                                                                 include_top=False,
+                                                                                 weights='imagenet',
+                                                                                 pooling="avg",
+                                                                                 alpha=0.75)
+            self.conv_feature_extractor.trainable = False
 
         self.nperseg = None
         self._example = None
@@ -137,11 +172,10 @@ class StftGenerator:
     def plot_stft(self, figure_number, flight_index=0, time_end=2, slice_duration=None, interactive=True):
         if slice_duration is None:
             slice_duration = 1 / self.STFT_frequency
-        filename = f"{self.sensor_type}.csv"
         self.select_sensor_features()
 
         # Retrieving flight sensor data information
-        flight_sensor_data = self.extract_flight_sensor_data(flight_index, filename)
+        flight_sensor_data = self.extract_flight_sensor_data(flight_index)
         flight_start_time = flight_sensor_data['# timestamps'][0]
         d_timestamps = (flight_sensor_data['# timestamps'] - flight_start_time) * 1e-9
         failure_bool = self.flights_info.iloc[flight_index]["Failure"]
@@ -218,6 +252,38 @@ class StftGenerator:
         plt.show()
         return figure_number
 
+    def plot_flo(self, flight_index=0, time_end=2, plotting_interval=1, interactive=False):
+        """
+        Plot the optical flow and the t-x image (first image in the computation of OF)
+        :param flight_index: the number of the flight
+        :param time_end: the end time of the plotting interval
+        :param plotting_interval: the length of the plotting interval
+        :param interactive: whether the plotting should be interactive, providing the user first with information
+        regarding the length of the video and the timestamp of the failure
+        :return:
+        """
+        flight_sensor_data = self.extract_flight_sensor_data(flight_index)
+        _, times_dict, _ = self.extract_timestamps(flight_sensor_data)
+        failure_timestamp, _, _ = self.extract_flight_info_data(flight_index, flight_sensor_data)
+
+        if interactive:
+            print(f"Failure timestamp: {failure_timestamp}")
+            print(f"Video length: {list(times_dict.keys())[-1]}")
+            time_start = float(input("Time of first OF."))
+            plotting_interval = float(input(f"Time interval used for the generation of OF "
+                                            f"images at {1/self.STFT_frequency} Hz."))
+            time_end = time_start + plotting_interval
+
+
+        flo_lst, img_lst = self.compute_camera_features(time_end-plotting_interval, time_end, times_dict,
+                                                        switch_return_img=True)
+        for i in range(len(flo_lst)):
+            flo = flo_lst[i]
+            img = img_lst[i]
+            img_flo = np.concatenate([img, flo], axis=0)
+            cv2.imshow('image', img_flo/255.0)
+            cv2.waitKey()
+
     def compute_slice_stft(self, data_slice):
         """
         Given a slice of data, it computes its stft.
@@ -238,17 +304,34 @@ class StftGenerator:
             stft_stack.append(stft_image[:, :, 0])
         return stft_stack, f[np.where(f <= float(self.f_max))[0]], t
 
-    def compute_slice_start_end(self, flight_sensor_data, failure_timestamp):
+    def extract_timestamps(self, flight_sensor_data):
         """
-        Compute the start and the end of the data interval
+        Extract the timestamps of the sensors used
         :param flight_sensor_data: flight sensor data
-        :param failure_timestamp: timestamp at which failure takes place
-        :return: the start and end times of the interval, as well as the timestamps of the flight in seconds, starting
-        at 0
+        :return:
         """
         flight_start_time = flight_sensor_data['# timestamps'][0]
         d_timestamps = (flight_sensor_data['# timestamps'] - flight_start_time) * 1e-9
 
+        times_dict = 0
+        if self.switch_include_camera:
+            folder_images = os.path.join(self.sensor_data_directory, self.flight_names.iloc[flight_index], self.camera_name)
+            frames_names = sorted(os.listdir(folder_images))
+            frames_names = list(filter(lambda x: "png" in x, frames_names))
+            frames_times = list(map(lambda x: (int(x[:-4])-flight_start_time)*1e-9, frames_names))
+            times_dict = dict(zip(frames_times, frames_names))
+
+        return d_timestamps, times_dict, flight_start_time
+
+    def compute_slice_start_end(self, flight_sensor_data, failure_timestamp, d_timestamps):
+        """
+        Compute the start and the end of the data interval
+        :param flight_sensor_data: flight sensor data
+        :param failure_timestamp: timestamp at which failure takes place
+        :param d_timestamps: the timestamps of the flight used for the computation of the start and end slice times
+        :return: the start and end times of the interval, as well as the timestamps of the flight in seconds, starting
+        at 0
+        """
         # Compute the number of time steps
         n_timesteps = int((d_timestamps.iloc[-1] - self.recording_start_time) / self.slice_duration)
         if failure_timestamp != -1:
@@ -259,7 +342,7 @@ class StftGenerator:
         factor_starting = 1
         if self.n_time_steps_des is not None:
             if n_timesteps < self.n_time_steps_des:
-                return 0, 0, 0, 0, True
+                return 0, 0, True
             factor_starting = np.random.choice(
                 range(min(n_timesteps - self.n_time_steps_des, distance_failure) + 1)) + 1
 
@@ -270,7 +353,7 @@ class StftGenerator:
         else:
             sample_end_time = d_timestamps.iloc[-1] + self.slice_duration
 
-        return sample_start_time, sample_end_time, d_timestamps, flight_start_time, False
+        return sample_start_time, sample_end_time, False
 
     def convert_to_stft(self, flight_sensor_data, failure_timestamp, failure_mode, d_timestamps, flight_start_time,
                         sample_start_time, sample_end_time):
@@ -327,15 +410,14 @@ class StftGenerator:
         else:
             raise ValueError(f"The sensor type {self.sensor_type} is not recognised.")
 
-    def extract_flight_sensor_data(self, flight_index, filename):
+    def extract_flight_sensor_data(self, flight_index):
         """
         Extract the sensor data
         :param flight_index: the number of the flight
-        :param filename: the name of the csv where the data is stored
         :return: flight_sensor_data
         """
         flight_sensor_data_directory = os.path.join(self.sensor_data_directory,
-                                                    self.flight_names.iloc[flight_index], filename)
+                                                    self.flight_names.iloc[flight_index], self.sensor_filename)
         flight_sensor_data = pd.read_csv(flight_sensor_data_directory)
         return flight_sensor_data
 
@@ -371,28 +453,64 @@ class StftGenerator:
 
         return failure_timestamp, failure_mode, False
 
+    def compute_camera_features(self, sample_start_time, sample_end_time, times_dict, switch_return_img=False):
+        """
+        Compute the features obtained from the camera
+        :param sample_start_time: first time at which the flight data will be taken
+        :param sample_end_time: last time at which the flight data will be taken
+        :param times_dict: dictionary matching the timestamps with the images' names
+        :param switch_return_img: whether the images should be returned apart from the flow
+        :return:
+        """
+        d_timestamps = pd.DataFrame(list(times_dict.keys()), columns=["t"])["t"]
+        frame_old = times_dict[d_timestamps[d_timestamps < sample_start_time-self.slice_duration].iloc[-1]]
+        flo_lst = []
+        img_lst = []
+        frame_old_lst = []
+        frame_new_lst = []
+        for time_end in np.linspace(sample_start_time, sample_end_time,
+                                    round((sample_end_time - sample_start_time) / self.slice_duration), endpoint=False):
+            frames_index = d_timestamps[(time_end - self.slice_duration <= d_timestamps) & (d_timestamps < time_end)].index
+            frame_new = times_dict[d_timestamps.iloc[frames_index[-1]]]
+            frame_old_lst.append(frame_old)
+            frame_new_lst.append(frame_new)
+            frame_old = frame_new
+        flo, img = self.raft_backbone.predict(folder_images, frame_old_lst, frame_new_lst, switch_return_img)
+        # for i in range(3):
+        #     flo[:, :, i] = np.fft.fftshift(np.fft.fft2(flo[:, :, i]))
+        flo_lst.append(flo)
+
+        if switch_return_img:
+            img_lst.append(img)
+
+        return flo_lst, img_lst
+
     def __call__(self):
-        filename = f"{self.sensor_type}.csv"
         self.select_sensor_features()
 
         if self.shuffle_flights:
-            flights_info = self.flights_info.sample(frac=1).reset_index().drop("index", axis=1)
-            flight_names = flights_info["Sensor_folder"]
-        else:
-            flight_names = self.flight_names
+            self.flights_info = self.raw_flights_info.sample(frac=1).reset_index().drop("index", axis=1)
+            self.flight_names = self.flights_info["Sensor_folder"]
 
         # Iterating over all the flights
-        for i in range(len(flight_names)):
+        for i in range(len(self.flight_names)):
             # Retrieving flight sensor data information
-            flight_sensor_data = self.extract_flight_sensor_data(i, filename)
+            flight_sensor_data = self.extract_flight_sensor_data(i)
 
             # Obtain flight information
             failure_timestamp, failure_mode, skip_flag = self.extract_flight_info_data(i, flight_sensor_data)
             if skip_flag: continue
 
+            # Obtain the timestamps from the sensors
+            d_timestamps, times_dict, flight_start_time = self.extract_timestamps(flight_sensor_data)
+
             # Obtain the interval start and end times
-            sample_start_time, sample_end_time, d_timestamps, flight_start_time, skip_flag = \
-                self.compute_slice_start_end(flight_sensor_data, failure_timestamp)
+            if self.switch_include_camera:
+                selected_timestamps = pd.DataFrame(list(times_dict.keys()), columns=["t"])["t"]
+            else:
+                selected_timestamps = d_timestamps
+            sample_start_time, sample_end_time, skip_flag = \
+                self.compute_slice_start_end(flight_sensor_data, failure_timestamp, selected_timestamps)
             if skip_flag: continue
 
             # Obtain the model input data and the labels
@@ -403,13 +521,20 @@ class StftGenerator:
             if self.switch_flatten:
                 stft_frames = tf.reshape(stft_frames, [stft_frames.shape[0], -1])
 
+            output_features = stft_frames
+            # Obtain camera information
+            if self.switch_include_camera:
+                flo_lst, _ = self.compute_camera_features(sample_start_time, sample_end_time, times_dict)
+                flo_features = self.conv_feature_extractor(tf.stack(flo_lst))
+                output_features = tf.concat([output_features, flo_features], 1)
+
             if self.switch_single_frame:
                 for i in range(stft_frames.shape[0]):
-                    stft_frame = stft_frames[i]
+                    output_feature = output_features[i]
                     flight_label = flight_labels[i]
-                    yield stft_frame, flight_label
+                    yield output_feature, flight_label
             else:
-                yield stft_frames, flight_labels
+                yield output_features, flight_labels
 
 
 def compute_maximum_dataset_sample_timesteps(data_base_folder, flight_data_number, STFT_frequency,
@@ -455,6 +580,7 @@ if __name__ == "__main__":
     sampling_frequency = 10
     start_time = 1.0
     desired_timesteps = 55
+    switch_single_frame = False
 
     # %% Plot input
     figure_number = 1
@@ -468,9 +594,12 @@ if __name__ == "__main__":
 
     stft_generator = StftGenerator(base_folder, flight_number, sampling_frequency, recording_start_time=start_time,
                                    n_time_steps_des=desired_timesteps, switch_flatten=True, switch_failure_modes=True,
-                                   shuffle_flights=True, switch_single_frame=True)
+                                   shuffle_flights=True, switch_single_frame=switch_single_frame,
+                                   switch_include_camera=True)
     # figure_number = stft_generator.plot_stft(figure_number, flight_index, end_time, duration_slice,
     #                                          interactive=interactive_plot_input)
+    # stft_generator.plot_flo(flight_index, end_time, duration_slice, interactive=interactive_plot_input)
+
     stft_generator = stft_generator()
     for i in range(5000):
         frames, labels = next(stft_generator)

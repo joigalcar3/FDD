@@ -5,10 +5,9 @@ from keras.utils.generic_utils import get_custom_objects
 
 from IMU_processing.FFT.ImuModelLSTM import ImuModelLstmFunctional
 from IMU_processing.FFT.StftGenerator import StftGenerator
-from IMU_processing.FFT.utils import define_callbacks, BatchLogging, convert_to_dataset
+from IMU_processing.FFT.helper_func import define_callbacks, BatchLogging, convert_to_dataset
 # TODO: try different activations functions --> leaky_rely, gelu
 # TODO: try another kernel_initialization
-# TODO: try more layers and more neurons
 
 
 # Add the GELU function to Keras
@@ -58,8 +57,8 @@ if __name__ == "__main__":
 
     # %% User input for the model
     l = 3                                         # Detection: 2
-    f = 256                                        # Detection: 10
-    dense_act = "relu"
+    f = 128                                        # Detection: 10
+    dense_act = "leaky-relu"
     n_classes = 17                                # Detection: 2
     checkpoint_name = f"dense_{dense_act}_glorot_{l}_{f}_batched_multiclass_sm"     # Detection: saved_model
     epochs = 50                                   # Detection: 10   Classification: 30

@@ -2,8 +2,7 @@ from keras.layers import LSTM, Dense, BatchNormalization, Input
 from keras.models import Model
 
 from IMU_processing.FFT.StftGenerator import *
-from IMU_processing.FFT.utils import define_callbacks, BatchLogging, convert_to_dataset
-# TODO: FFT of camera OF image
+from IMU_processing.FFT.helper_func import define_callbacks, BatchLogging, convert_to_dataset
 
 
 class ImuModelLstmSubclassing(tf.keras.Model):
@@ -54,13 +53,16 @@ if __name__ == "__main__":
     desired_timesteps = 55
     switch_failure_modes = True
     switch_flatten = True
+    shuffle_flights = True
+    switch_include_camera = True
+    switch_shuffle_buffer = False
     BATCH_SIZE = 10
 
     # %% User input for the model
     l = 3                                         # Detection: 2
     f = 30                                        # Detection: 10
     n_classes = 17                                # Detection: 2
-    checkpoint_name = "Lstm_batched_multiclass_sm"    # Detection: saved_model
+    checkpoint_name = f"lstm_{l}_{f}_cam{int(switch_include_camera)}_batched_multiclass_sm"     # Detection: saved_model
     epochs = 50                                   # Detection: 10   Classification: 30
     patience = 10                                 # Detection: 2   Classification: 3
     log_directory = "logs"
@@ -69,8 +71,10 @@ if __name__ == "__main__":
     generator_input = {"data_base_folder": base_folder, "flight_data_number": flight_number,
                        "STFT_frequency": sampling_frequency, "recording_start_time": start_time,
                        "n_time_steps_des": desired_timesteps, "switch_failure_modes": switch_failure_modes,
-                       "switch_flatten": switch_flatten, "shuffle_flights": True}   #, "train_split": 0.20, "val_split": 0.01
-    train_ds, val_ds, data_sample_shape, generators = convert_to_dataset(StftGenerator, BATCH_SIZE, **generator_input)
+                       "switch_flatten": switch_flatten, "shuffle_flights": shuffle_flights,
+                       "switch_include_camera": switch_include_camera}   #, "train_split": 0.20, "val_split": 0.01
+    train_ds, val_ds, data_sample_shape, generators = convert_to_dataset(StftGenerator, BATCH_SIZE,
+                                                                         switch_shuffle_buffer, **generator_input)
 
     # Create callbacks
     # Define the Keras TensorBoard callback.

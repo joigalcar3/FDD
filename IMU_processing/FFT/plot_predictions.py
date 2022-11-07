@@ -4,7 +4,7 @@ import numpy as np
 from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
 from IMU_processing.FFT.ImuModelLSTM import ImuModelLstmFunctional, BatchLogging
 from IMU_processing.FFT.StftGenerator import StftGenerator
-from IMU_processing.FFT.utils import convert_to_dataset
+from IMU_processing.FFT.helper_func import convert_to_dataset
 
 propeller_dictionary = {0: "front left", 1: "front right", 2: "back right", 3: "back left"}
 
@@ -45,7 +45,7 @@ def plot_predictions(model, generator_class, BATCH_SIZE, generator_input, datase
     :param flights_per_plot: the number of flights shown in a single figure
     :return:
     """
-    _, _, _, [train_gen, val_gen] = convert_to_dataset(generator_class, BATCH_SIZE, **generator_input)
+    _, _, _, [train_gen, val_gen] = convert_to_dataset(generator_class, BATCH_SIZE, False, **generator_input)
     stop = False
     if dataset == "train":
         generator = iter(train_gen())
@@ -111,7 +111,7 @@ def create_confusion_matrix(model, generator_class, BATCH_SIZE, generator_input,
     :param ignore_healthy: whether the healthy label is ignored in the generation of the CM
     :return:
     """
-    train_ds, val_ds, _, _ = convert_to_dataset(generator_class, BATCH_SIZE, **generator_input)
+    train_ds, val_ds, _, _ = convert_to_dataset(generator_class, BATCH_SIZE, False, **generator_input)
     if dataset == "train":
         generator = iter(train_ds)
     else:

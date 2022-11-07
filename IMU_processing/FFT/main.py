@@ -1,6 +1,6 @@
 from IMU_processing.FFT.StftGenerator import *
-from IMU_processing.FFT.ImuModelConvLstm import *
-from IMU_processing.FFT.convert_to_dataset import convert_to_dataset
+from IMU_processing.FFT.Old.ImuModelConvLstm import *
+from IMU_processing.FFT.helper_func import convert_to_dataset
 from datetime import datetime
 
 
