@@ -324,7 +324,7 @@ class StftGenerator:
             folder_images = os.path.join(self.sensor_data_directory, self.flight_names.iloc[flight_index],
                                          self.camera_name)
             frames_names = sorted(os.listdir(folder_images))
-            frames_names = filter(lambda x: "png" in x, frames_names)
+            frames_names = list(filter(lambda x: "png" in x, frames_names))
             frames_times = map(lambda x: (int(x[:-4])-flight_start_time)*1e-9, frames_names)
             frames_directory = map(lambda x: os.path.join(folder_images, x), frames_names)
             times_dict = dict(zip(frames_times, frames_directory))
@@ -361,6 +361,9 @@ class StftGenerator:
         else:
             sample_end_time = d_timestamps.iloc[-1] + self.slice_duration
 
+        # if d_timestamps.iloc[-1] < sample_end_time:
+        #     print("WHAT HAPPENED?")
+        #     return 0, 0, True
         return sample_start_time, sample_end_time, False
 
     def convert_to_stft(self, flight_sensor_data, failure_timestamp, failure_mode, d_timestamps, flight_start_time,
@@ -478,6 +481,7 @@ class StftGenerator:
         for time_end in np.linspace(sample_start_time, sample_end_time,
                                     round((sample_end_time - sample_start_time) / self.slice_duration), endpoint=False):
             frames_index = d_timestamps[(time_end - self.slice_duration <= d_timestamps) & (d_timestamps < time_end)].index
+            # print(frames_index)
             frame_new = times_dict[d_timestamps.iloc[frames_index[-1]]]
             frame_old_lst.append(frame_old)
             frame_new_lst.append(frame_new)
@@ -543,7 +547,7 @@ class StftGenerator:
 
             # Obtain camera information
             if self.switch_include_camera:
-                intermediate_time = time.time()
+                # intermediate_time = time.time()
                 flo_lst, _ = self.compute_camera_features(sample_start_time, sample_end_time, times_dict)
                 # print(f"\n Time since the beginning of the flight computation: {time.time() - start_time}")
                 # print(f"Time to obtain the raft features: {time.time() - intermediate_time}")
