@@ -18,8 +18,10 @@ from scipy import signal
 import numpy as np
 import matplotlib.pyplot as plt
 import cv2
+import torch
+import time
 
-from IMU_processing.FFT.RaftBackbone import RaftBackbone
+from IMU_processing.FFT.RaftBackboneTorch import RaftBackboneTorch
 # TODO: synchronise camera and IMU
 # TODO: try reduce size of image, perform fft and then conv
 
@@ -115,16 +117,19 @@ class StftGenerator:
         self.flight_names = self.flights_info["Sensor_folder"]
 
         if self.switch_include_camera:
-            self.raft_backbone = RaftBackbone()
+            self.raft_backbone = RaftBackboneTorch()
             folder_images = os.path.join(self.sensor_data_directory, self.flight_names.iloc[0],
                                          self.camera_name)
-            image_name = os.listdir(folder_images)[1]
-            dummy_image, _ = self.raft_backbone.predict(folder_images, [image_name], [image_name])
-            IMG_SHAPE = dummy_image.shape
+            image_name = os.path.join(folder_images, os.listdir(folder_images)[1])
+            dummy_image, _ = self.raft_backbone.predict([image_name], [image_name])
+            self.raft_backbone.delete_model_from_gpu()
+            torch.cuda.empty_cache()
+            IMG_SHAPE = tuple(dummy_image.shape[1:])
             # Decision between mobilenetv2 mobilenetv3large and mobilenetv3small.
             # Mobilenetv3 is more accurate and faster than mobilenetv2
             # Mobilenetv3small with alpha=1.0 could run at a frequency of 60.48 Hz
             # Mobilenetv3small with alpha=0.75 could run at a frequency of 74.82 Hz
+            # Transfer learning: https://www.tensorflow.org/tutorials/images/transfer_learning
             # Why mobilenets: https://keras.io/api/applications/#usage-examples-for-image-classification-models
             # Explanation: https://towardsdatascience.com/everything-you-need-to-know-about-mobilenetv3-and-its-comparison-with-previous-versions-a5d5e5a6eeaa
             # APIs: https://keras.io/api/applications/mobilenet/
@@ -263,7 +268,7 @@ class StftGenerator:
         :return:
         """
         flight_sensor_data = self.extract_flight_sensor_data(flight_index)
-        _, times_dict, _ = self.extract_timestamps(flight_sensor_data)
+        _, times_dict, _ = self.extract_timestamps(flight_index, flight_sensor_data)
         failure_timestamp, _, _ = self.extract_flight_info_data(flight_index, flight_sensor_data)
 
         if interactive:
@@ -304,9 +309,10 @@ class StftGenerator:
             stft_stack.append(stft_image[:, :, 0])
         return stft_stack, f[np.where(f <= float(self.f_max))[0]], t
 
-    def extract_timestamps(self, flight_sensor_data):
+    def extract_timestamps(self, flight_index, flight_sensor_data):
         """
         Extract the timestamps of the sensors used
+        :param flight_index: the number of the flight
         :param flight_sensor_data: flight sensor data
         :return:
         """
@@ -315,11 +321,13 @@ class StftGenerator:
 
         times_dict = 0
         if self.switch_include_camera:
-            folder_images = os.path.join(self.sensor_data_directory, self.flight_names.iloc[flight_index], self.camera_name)
+            folder_images = os.path.join(self.sensor_data_directory, self.flight_names.iloc[flight_index],
+                                         self.camera_name)
             frames_names = sorted(os.listdir(folder_images))
-            frames_names = list(filter(lambda x: "png" in x, frames_names))
-            frames_times = list(map(lambda x: (int(x[:-4])-flight_start_time)*1e-9, frames_names))
-            times_dict = dict(zip(frames_times, frames_names))
+            frames_names = filter(lambda x: "png" in x, frames_names)
+            frames_times = map(lambda x: (int(x[:-4])-flight_start_time)*1e-9, frames_names)
+            frames_directory = map(lambda x: os.path.join(folder_images, x), frames_names)
+            times_dict = dict(zip(frames_times, frames_directory))
 
         return d_timestamps, times_dict, flight_start_time
 
@@ -462,10 +470,9 @@ class StftGenerator:
         :param switch_return_img: whether the images should be returned apart from the flow
         :return:
         """
+        # start_time = time.time()
         d_timestamps = pd.DataFrame(list(times_dict.keys()), columns=["t"])["t"]
         frame_old = times_dict[d_timestamps[d_timestamps < sample_start_time-self.slice_duration].iloc[-1]]
-        flo_lst = []
-        img_lst = []
         frame_old_lst = []
         frame_new_lst = []
         for time_end in np.linspace(sample_start_time, sample_end_time,
@@ -475,13 +482,10 @@ class StftGenerator:
             frame_old_lst.append(frame_old)
             frame_new_lst.append(frame_new)
             frame_old = frame_new
-        flo, img = self.raft_backbone.predict(folder_images, frame_old_lst, frame_new_lst, switch_return_img)
+        # print(f"\n Time for the camera name extraction: {time.time() - start_time}")
+        flo_lst, img_lst = self.raft_backbone.predict(frame_old_lst, frame_new_lst, switch_return_img)
         # for i in range(3):
         #     flo[:, :, i] = np.fft.fftshift(np.fft.fft2(flo[:, :, i]))
-        flo_lst.append(flo)
-
-        if switch_return_img:
-            img_lst.append(img)
 
         return flo_lst, img_lst
 
@@ -494,15 +498,23 @@ class StftGenerator:
 
         # Iterating over all the flights
         for i in range(len(self.flight_names)):
+            # start_time = time.time()
+            # intermediate_time = time.time()
             # Retrieving flight sensor data information
             flight_sensor_data = self.extract_flight_sensor_data(i)
 
             # Obtain flight information
             failure_timestamp, failure_mode, skip_flag = self.extract_flight_info_data(i, flight_sensor_data)
+            # print(f"Time since the beginning of the flight computation: {time.time()-start_time}")
+            # print(f"Time to obtain flight information: {time.time() - intermediate_time}")
+            # intermediate_time = time.time()
             if skip_flag: continue
 
             # Obtain the timestamps from the sensors
-            d_timestamps, times_dict, flight_start_time = self.extract_timestamps(flight_sensor_data)
+            d_timestamps, times_dict, flight_start_time = self.extract_timestamps(i, flight_sensor_data)
+            # print(f"Time since the beginning of the flight computation: {time.time()-start_time}")
+            # print(f"Time to obtain the timestamps from the sensors: {time.time() - intermediate_time}")
+            # intermediate_time = time.time()
 
             # Obtain the interval start and end times
             if self.switch_include_camera:
@@ -512,20 +524,34 @@ class StftGenerator:
             sample_start_time, sample_end_time, skip_flag = \
                 self.compute_slice_start_end(flight_sensor_data, failure_timestamp, selected_timestamps)
             if skip_flag: continue
+            # print(f"Time since the beginning of the flight computation: {time.time() - start_time}")
+            # print(f"Time to obtain the interval start and end times: {time.time() - intermediate_time}")
+            # intermediate_time = time.time()
 
-            # Obtain the model input data and the labels
+            # Obtain the IMU features
             stft_frames, flight_labels = self.convert_to_stft(flight_sensor_data, failure_timestamp,
                                                               failure_mode, d_timestamps, flight_start_time,
                                                               sample_start_time, sample_end_time)
+            # print(f"Time since the beginning of the flight computation: {time.time() - start_time}")
+            # print(f"Time to obtain the IMU features: {time.time() - intermediate_time}")
+            # intermediate_time = time.time()
 
             if self.switch_flatten:
                 stft_frames = tf.reshape(stft_frames, [stft_frames.shape[0], -1])
 
             output_features = stft_frames
+
             # Obtain camera information
             if self.switch_include_camera:
+                intermediate_time = time.time()
                 flo_lst, _ = self.compute_camera_features(sample_start_time, sample_end_time, times_dict)
-                flo_features = self.conv_feature_extractor(tf.stack(flo_lst))
+                # print(f"\n Time since the beginning of the flight computation: {time.time() - start_time}")
+                # print(f"Time to obtain the raft features: {time.time() - intermediate_time}")
+                # intermediate_time = time.time()
+                flo_features = self.conv_feature_extractor(flo_lst)
+                # print(f"Time since the beginning of the flight computation: {time.time() - start_time}")
+                # print(f"Time to run conv_feature_extractor: {time.time() - intermediate_time}")
+                # intermediate_time = time.time()
                 output_features = tf.concat([output_features, flo_features], 1)
 
             if self.switch_single_frame:

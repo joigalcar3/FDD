@@ -24,6 +24,9 @@ def convert_to_dataset(generator, BATCH_SIZE, switch_shuffle_buffer=True, **kwar
     val_ds = tf.data.Dataset.from_generator(val_generator, output_signature=output_signature)
 
     # Adding the batch dimension
+    # https://www.tensorflow.org/guide/data_performance
+    # https://www.tensorflow.org/datasets/performances
+    # https://www.tensorflow.org/tutorials/load_data/video
     AUTOTUNE = tf.data.AUTOTUNE
     if switch_shuffle_buffer:
         train_ds = train_ds.shuffle(buffer_size=BATCH_SIZE*10, reshuffle_each_iteration=True)
@@ -103,6 +106,12 @@ class BatchLogging(tf.keras.Model):
     def call(self, x):
         x = self.model(x)
         return x
+
+
+# https://stackoverflow.com/questions/2130016/splitting-a-list-into-n-parts-of-approximately-equal-length?page=1&tab=scoredesc#tab-top
+def split_indices(a, n):
+    k, m = divmod(len(a), n)
+    return (a[i*k+min(i, m):(i+1)*k+min(i+1, m)] for i in range(n))
 
 
 
