@@ -32,17 +32,19 @@ def convert_to_dataset(generator, BATCH_SIZE, switch_shuffle_buffer=True, **kwar
         train_ds = train_ds.shuffle(buffer_size=BATCH_SIZE*10, reshuffle_each_iteration=True)
         val_ds = val_ds.shuffle(buffer_size=BATCH_SIZE*10, reshuffle_each_iteration=True)
 
-    train_ds = train_ds.prefetch(buffer_size=AUTOTUNE).batch(BATCH_SIZE)
-    val_ds = val_ds.prefetch(buffer_size=AUTOTUNE).batch(BATCH_SIZE)
+    # train_ds = train_ds.prefetch(buffer_size=AUTOTUNE).batch(BATCH_SIZE)
+    # val_ds = val_ds.prefetch(buffer_size=AUTOTUNE).batch(BATCH_SIZE)
+    train_ds = train_ds.batch(BATCH_SIZE)
+    val_ds = val_ds.batch(BATCH_SIZE)
 
     # Print the shapes of the data
     # train_frames, train_labels = next(iter(train_ds))
-    print(f'Shape of training set of frames: {(BATCH_SIZE, *list(data_sample_shape))}')
-    print(f'Shape of training labels: {(BATCH_SIZE, *list(label_sample_shape))}')
+    print(f'Shape of training/validation set of frames: {(BATCH_SIZE, *list(data_sample_shape))}')
+    print(f'Shape of training/validation labels: {(BATCH_SIZE, *list(label_sample_shape))}')
 
     # val_frames, val_labels = next(iter(val_ds))
-    print(f'Shape of validation set of frames: {(BATCH_SIZE, *list(val_generator.example[0].shape))}')
-    print(f'Shape of validation labels: {(BATCH_SIZE, *list(val_generator.example[1].shape))}')
+    # print(f'Shape of validation set of frames: {(BATCH_SIZE, *list(val_generator.example[0].shape))}')
+    # print(f'Shape of validation labels: {(BATCH_SIZE, *list(val_generator.example[1].shape))}')
 
     return train_ds, val_ds, data_sample_shape, [train_generator, val_generator]
 

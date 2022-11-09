@@ -60,36 +60,36 @@ class RaftBackboneTorch:
             frames_batch = torch.permute(torch.tensor(rgba2rgb(skimage.io.imread_collection(frames))), (0, 3, 1, 2))
             img1_batch, img2_batch = self.preprocess(frames_batch)
 
-            # if self.number_minibatches != 1:
-            #     # Create minibatches of indices
-            #     splits = list(split_indices(range(img1_batch.shape[0]), min(self.number_minibatches, img1_batch.shape[0])))
-            #     # print(f"Time for image splitting: {time.time() - start_time}")
-            #     # start_time = time.time()
-            #
-            #     # Compute optical flow
-            #     flo_lst = []
-            #     img_lst = []
-            #     for split in splits:
-            #         im1, im2 = img1_batch[split], img2_batch[split]
-            #         predicted_flows = self.model(im1.to(self.device), im2.to(self.device))[-1]
-            #         # print(f"Time for minibatch raft processing: {time.time() - start_time}")
-            #         # start_time = time.time()
-            #
-            #         # Retrieve the flow array
-            #         flow_imgs = flow_to_image(predicted_flows).permute(0, 2, 3, 1).cpu().numpy()
-            #         flo_lst.extend(flow_imgs)
-            #         if switch_return_img:
-            #             img = im1.permute(0, 2, 3, 1).cpu().numpy()
-            #             img_lst.extend(img)
-            #         # print(f"Time for flow conversion: {time.time() - start_time}")
-            #         # start_time = time.time()
-            # else:
-            img_lst = []
-            predicted_flows = self.model(img1_batch.to(self.device), img2_batch.to(self.device))[-1]
-            flo_lst = flow_to_image(predicted_flows).permute(0, 2, 3, 1).cpu().numpy()
-            flo_lst = tf.stack(flo_lst)
-            if switch_return_img:
-                img_lst = img1_batch.permute(0, 2, 3, 1).cpu().numpy()
-                img_lst = tf.stack(img_lst)
+            if self.number_minibatches != 1:
+                # Create minibatches of indices
+                splits = list(split_indices(range(img1_batch.shape[0]), min(self.number_minibatches, img1_batch.shape[0])))
+                # print(f"Time for image splitting: {time.time() - start_time}")
+                # start_time = time.time()
+
+                # Compute optical flow
+                flo_lst = []
+                img_lst = []
+                for split in splits:
+                    im1, im2 = img1_batch[split], img2_batch[split]
+                    predicted_flows = self.model(im1.to(self.device), im2.to(self.device))[-1]
+                    # print(f"Time for minibatch raft processing: {time.time() - start_time}")
+                    # start_time = time.time()
+
+                    # Retrieve the flow array
+                    flow_imgs = flow_to_image(predicted_flows).permute(0, 2, 3, 1).cpu().numpy()
+                    flo_lst.extend(flow_imgs)
+                    if switch_return_img:
+                        img = im1.permute(0, 2, 3, 1).cpu().numpy()
+                        img_lst.extend(img)
+                    # print(f"Time for flow conversion: {time.time() - start_time}")
+                    # start_time = time.time()
+            else:
+                img_lst = []
+                predicted_flows = self.model(img1_batch.to(self.device), img2_batch.to(self.device))[-1]
+                flo_lst = flow_to_image(predicted_flows).permute(0, 2, 3, 1).cpu().numpy()
+                flo_lst = tf.stack(flo_lst)
+                if switch_return_img:
+                    img_lst = img1_batch.permute(0, 2, 3, 1).cpu().numpy()
+                    img_lst = tf.stack(img_lst)
 
         return flo_lst, img_lst

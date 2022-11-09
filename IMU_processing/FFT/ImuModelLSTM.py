@@ -46,7 +46,7 @@ class ImuModelLstmFunctional:
 
 if __name__ == "__main__":
     # %% User input for the dataset
-    base_folder = "D:\\AirSim_project_512_288"
+    base_folder = "D:\\AirSim_project_512_288_dummy"
     flight_number = 43
     sampling_frequency = 10
     start_time = 1.0
@@ -56,7 +56,8 @@ if __name__ == "__main__":
     shuffle_flights = True
     switch_include_camera = True
     switch_shuffle_buffer = False
-    BATCH_SIZE = 10
+    # https://datascience.stackexchange.com/questions/20179/what-is-the-advantage-of-keeping-batch-size-a-power-of-2
+    BATCH_SIZE = 8
 
     # %% User input for the model
     l = 3                                         # Detection: 2

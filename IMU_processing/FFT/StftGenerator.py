@@ -75,6 +75,7 @@ class StftGenerator:
         :param switch_single_frame: whether single frames are returned instead of an array of sequential data
         :param switch_include_camera: whether camera data should be include as output from the generator
         """
+        # print(f"START {generator_type}")
         flight_data_folder = os.path.join(data_base_folder, "Flight_info")
         flights_info_directory = os.path.join(flight_data_folder,
                                               next(filter(lambda x: ".csv" in x and f"_{flight_data_number}_" in x,
@@ -89,6 +90,7 @@ class StftGenerator:
         self.sensor_filename = f"{self.sensor_type}.csv"
         self.camera_name = camera_name
         self.sensor_features = sensor_features
+        self.generator_type = generator_type
         self.recording_start_time = recording_start_time
         self.switch_include_angle_mode = switch_include_angle_mode
         self.switch_failure_modes = switch_failure_modes
@@ -99,8 +101,6 @@ class StftGenerator:
 
         complete_flights_info = pd.read_csv(flights_info_directory)
         total_n_flights = len(complete_flights_info)
-        if self.shuffle_flights:
-            complete_flights_info = complete_flights_info.sample(frac=1).reset_index()
 
         if generator_type == "train":
             slice_start = 0
@@ -121,7 +121,7 @@ class StftGenerator:
             folder_images = os.path.join(self.sensor_data_directory, self.flight_names.iloc[0],
                                          self.camera_name)
             image_name = os.path.join(folder_images, os.listdir(folder_images)[1])
-            dummy_image, _ = self.raft_backbone.predict([image_name], [image_name])
+            dummy_image, _ = self.raft_backbone.predict([image_name, image_name], False)
             self.raft_backbone.delete_model_from_gpu()
             torch.cuda.empty_cache()
             IMG_SHAPE = tuple(dummy_image.shape[1:])
@@ -280,8 +280,8 @@ class StftGenerator:
             time_end = time_start + plotting_interval
 
 
-        flo_lst, img_lst = self.compute_camera_features(time_end-plotting_interval, time_end, times_dict,
-                                                        switch_return_img=True)
+        flo_lst, img_lst, _ = self.compute_camera_features(time_end-plotting_interval, time_end, times_dict,
+                                                           switch_return_img=True)
         for i in range(len(flo_lst)):
             flo = flo_lst[i]
             img = img_lst[i]
@@ -321,6 +321,7 @@ class StftGenerator:
 
         times_dict = 0
         if self.switch_include_camera:
+            # print(self.flight_names.iloc[flight_index])
             folder_images = os.path.join(self.sensor_data_directory, self.flight_names.iloc[flight_index],
                                          self.camera_name)
             frames_names = sorted(os.listdir(folder_images))
@@ -331,10 +332,9 @@ class StftGenerator:
 
         return d_timestamps, times_dict, flight_start_time
 
-    def compute_slice_start_end(self, flight_sensor_data, failure_timestamp, d_timestamps):
+    def compute_slice_start_end(self, failure_timestamp, d_timestamps):
         """
         Compute the start and the end of the data interval
-        :param flight_sensor_data: flight sensor data
         :param failure_timestamp: timestamp at which failure takes place
         :param d_timestamps: the timestamps of the flight used for the computation of the start and end slice times
         :return: the start and end times of the interval, as well as the timestamps of the flight in seconds, starting
@@ -350,6 +350,7 @@ class StftGenerator:
         factor_starting = 1
         if self.n_time_steps_des is not None:
             if n_timesteps < self.n_time_steps_des:
+                print("SKIPPED: compute_slice_start_end")
                 return 0, 0, True
             factor_starting = np.random.choice(
                 range(min(n_timesteps - self.n_time_steps_des, distance_failure) + 1)) + 1
@@ -360,10 +361,6 @@ class StftGenerator:
             sample_end_time = sample_start_time + self.n_time_steps_des * self.slice_duration
         else:
             sample_end_time = d_timestamps.iloc[-1] + self.slice_duration
-
-        # if d_timestamps.iloc[-1] < sample_end_time:
-        #     print("WHAT HAPPENED?")
-        #     return 0, 0, True
         return sample_start_time, sample_end_time, False
 
     def convert_to_stft(self, flight_sensor_data, failure_timestamp, failure_mode, d_timestamps, flight_start_time,
@@ -443,6 +440,7 @@ class StftGenerator:
         failure_bool = flight_info["Failure"]
         raw_failure_timestamp = flight_info["Failure_timestamp"]
         if np.isnan(raw_failure_timestamp):
+            print("SKIPPED: extract_flight_info_data")
             return 0, 0, True
 
         if failure_bool:
@@ -476,24 +474,26 @@ class StftGenerator:
         # start_time = time.time()
         d_timestamps = pd.DataFrame(list(times_dict.keys()), columns=["t"])["t"]
         frame_old = times_dict[d_timestamps[d_timestamps < sample_start_time-self.slice_duration].iloc[-1]]
-        frame_old_lst = []
-        frame_new_lst = []
+        frame_lst = [frame_old]
         for time_end in np.linspace(sample_start_time, sample_end_time,
                                     round((sample_end_time - sample_start_time) / self.slice_duration), endpoint=False):
             frames_index = d_timestamps[(time_end - self.slice_duration <= d_timestamps) & (d_timestamps < time_end)].index
-            # print(frames_index)
+            # Example of flight that requires this: 20220802-023533_1. Between frames 205 and 206 there is a time
+            # difference of 0.3+
+            if len(frames_index) == 0:
+                print("SKIPPED: compute_camera_features")
+                return 0, 0, True
             frame_new = times_dict[d_timestamps.iloc[frames_index[-1]]]
-            frame_old_lst.append(frame_old)
-            frame_new_lst.append(frame_new)
-            frame_old = frame_new
+            frame_lst.append(frame_new)
         # print(f"\n Time for the camera name extraction: {time.time() - start_time}")
-        flo_lst, img_lst = self.raft_backbone.predict(frame_old_lst, frame_new_lst, switch_return_img)
+        flo_lst, img_lst = self.raft_backbone.predict(frame_lst, switch_return_img)
         # for i in range(3):
         #     flo[:, :, i] = np.fft.fftshift(np.fft.fft2(flo[:, :, i]))
 
-        return flo_lst, img_lst
+        return flo_lst, img_lst, False
 
     def __call__(self):
+        # print(f"START_CALL {self.generator_type}")
         self.select_sensor_features()
 
         if self.shuffle_flights:
@@ -526,7 +526,7 @@ class StftGenerator:
             else:
                 selected_timestamps = d_timestamps
             sample_start_time, sample_end_time, skip_flag = \
-                self.compute_slice_start_end(flight_sensor_data, failure_timestamp, selected_timestamps)
+                self.compute_slice_start_end(failure_timestamp, selected_timestamps)
             if skip_flag: continue
             # print(f"Time since the beginning of the flight computation: {time.time() - start_time}")
             # print(f"Time to obtain the interval start and end times: {time.time() - intermediate_time}")
@@ -548,7 +548,8 @@ class StftGenerator:
             # Obtain camera information
             if self.switch_include_camera:
                 # intermediate_time = time.time()
-                flo_lst, _ = self.compute_camera_features(sample_start_time, sample_end_time, times_dict)
+                flo_lst, _, skip_flag = self.compute_camera_features(sample_start_time, sample_end_time, times_dict)
+                if skip_flag: continue
                 # print(f"\n Time since the beginning of the flight computation: {time.time() - start_time}")
                 # print(f"Time to obtain the raft features: {time.time() - intermediate_time}")
                 # intermediate_time = time.time()
@@ -605,7 +606,7 @@ def compute_maximum_dataset_sample_timesteps(data_base_folder, flight_data_numbe
 
 if __name__ == "__main__":
     # %% User input
-    base_folder = "D:\\AirSim_project_512_288"
+    base_folder = "D:\\AirSim_project_512_288_dummy"
     flight_number = 43
     sampling_frequency = 10
     start_time = 1.0
