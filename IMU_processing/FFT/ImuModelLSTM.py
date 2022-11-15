@@ -46,7 +46,7 @@ class ImuModelLstmFunctional:
 
 if __name__ == "__main__":
     # %% User input for the dataset
-    base_folder = "D:\\AirSim_project_512_288_dummy"
+    base_folder = "D:\\AirSim_project_512_288"
     flight_number = 43
     sampling_frequency = 10
     start_time = 1.0

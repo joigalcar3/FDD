@@ -22,7 +22,6 @@ import torch
 import time
 
 from IMU_processing.FFT.RaftBackboneTorch import RaftBackboneTorch
-# TODO: synchronise camera and IMU
 # TODO: try reduce size of image, perform fft and then conv
 
 np.random.seed(0)
@@ -40,7 +39,6 @@ __status__ = "Production"
 
 
 # TODO: implement STFT over previous stored values
-# TODO: IMU saturation
 # TODO: FFT of camera OF image
 
 
@@ -101,6 +99,10 @@ class StftGenerator:
 
         complete_flights_info = pd.read_csv(flights_info_directory)
         total_n_flights = len(complete_flights_info)
+
+        if self.shuffle_flights:
+            complete_flights_info = complete_flights_info.sample(frac=1, random_state=1).\
+                reset_index().drop("index", axis=1)
 
         if generator_type == "train":
             slice_start = 0
@@ -213,10 +215,10 @@ class StftGenerator:
                 continue
             if "angular" in data_state_key:
                 ax = ax_gyro
-                ylabel_func = lambda xyz: f"$M_{xyz}$ [Nm]"
+                ylabel_func = lambda xyz: f"$\Omega_{xyz}$ [rad/s]"
             else:
                 ax = ax_acc
-                ylabel_func = lambda xyz: f"$F_{xyz}$ [N]"
+                ylabel_func = lambda xyz: f"$a_{xyz}$ [m/s$^2$]"
             if "_x" in data_state_key:
                 ax1 = ax[0, 0]
                 ax2 = ax[0, 1]
@@ -606,7 +608,7 @@ def compute_maximum_dataset_sample_timesteps(data_base_folder, flight_data_numbe
 
 if __name__ == "__main__":
     # %% User input
-    base_folder = "D:\\AirSim_project_512_288_dummy"
+    base_folder = "D:\\AirSim_project_512_288"
     flight_number = 43
     sampling_frequency = 10
     start_time = 1.0
@@ -617,7 +619,7 @@ if __name__ == "__main__":
     figure_number = 1
     end_time = 2
     duration_slice = 1
-    flight_index = 0
+    flight_index = 1
     interactive_plot_input = True
 
     # minimum_length, length_lst = compute_maximum_dataset_sample_timesteps(base_folder, flight_number,
@@ -627,8 +629,8 @@ if __name__ == "__main__":
                                    n_time_steps_des=desired_timesteps, switch_flatten=True, switch_failure_modes=True,
                                    shuffle_flights=True, switch_single_frame=switch_single_frame,
                                    switch_include_camera=True)
-    # figure_number = stft_generator.plot_stft(figure_number, flight_index, end_time, duration_slice,
-    #                                          interactive=interactive_plot_input)
+    figure_number = stft_generator.plot_stft(figure_number, flight_index, end_time, duration_slice,
+                                             interactive=interactive_plot_input)
     # stft_generator.plot_flo(flight_index, end_time, duration_slice, interactive=interactive_plot_input)
 
     stft_generator = stft_generator()

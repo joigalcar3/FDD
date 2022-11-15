@@ -1,5 +1,8 @@
 import tensorflow as tf
 from datetime import datetime
+from keras.callbacks import Callback
+import gc
+from keras import backend as k
 
 
 def convert_to_dataset(generator, BATCH_SIZE, switch_shuffle_buffer=True, **kwargs):
@@ -57,19 +60,30 @@ def define_callbacks(log_directory, patience, checkpoint_name):
     :param checkpoint_name: the name of the checkpoint
     :return:
     """
+    # Tensorboard callback
     datestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     logdir = f'{log_directory}/fit/{checkpoint_name}_{datestamp}'
     tensorboard_callback = tf.keras.callbacks.TensorBoard(log_dir=logdir, update_freq="batch")
 
+    # Early stop callback
     early_stop_callback = tf.keras.callbacks.EarlyStopping(patience=patience, monitor='val_loss', verbose=1)
 
+    # Checkpoint callback
     checkpoint_logdir = f'checkpoints/{checkpoint_name + datestamp}'
     model_checkpoint_callback = tf.keras.callbacks.ModelCheckpoint(checkpoint_logdir, verbose=1,
                                                                    monitor="val_loss", save_best_only=True,
                                                                    save_weights_only=True)
+
+    # Epoch logging callback
     csv_logger_callback = tf.keras.callbacks.CSVLogger("csv_logs/training.csv")
 
-    callbacks = [tensorboard_callback, early_stop_callback, model_checkpoint_callback, csv_logger_callback]
+    # Memory cleaning callback
+    class ClearMemory(Callback):
+        def on_epoch_end(self, epoch, logs=None):
+            gc.collect()
+            k.clear_session()
+
+    callbacks = [tensorboard_callback, early_stop_callback, model_checkpoint_callback, csv_logger_callback, ClearMemory()]
 
     # Tensorboard batch logging
     log_dir = f'{log_directory}/batch_level/{checkpoint_name}_{datestamp}/train'

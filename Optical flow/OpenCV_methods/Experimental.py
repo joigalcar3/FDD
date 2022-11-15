@@ -7,14 +7,16 @@ from skimage.io import imread
 from skimage.color import rgba2rgb
 
 
-def create_video(img_folder, fps_rate_in=30, fps_rate_out=30, start_frame=0):
+def create_video(img_folder, fps_rate_in=30, fps_rate_out=30, start_frame=0, out_folder=None, out_file_name=None):
     img_names = sorted(os.listdir(img_folder))
     image_path = os.path.join(img_folder, img_names[0])
     image = imread(image_path)
     frameSize = image.shape[1::-1]
-    cwd = os.path.dirname(os.getcwd())
-    out_file_name = img_folder.split("\\")[-1] + f"_s{start_frame}_f{fps_rate_out}"
-    out_folder = f'{cwd}\\video_storage\\' + img_folder.split("\\")[-1]
+    if out_file_name is None:
+        out_file_name = img_folder.split("\\")[-1] + f"_s{start_frame}_f{fps_rate_out}"
+    if out_folder is None:
+        cwd = os.path.dirname(os.getcwd())
+        out_folder = f'{cwd}\\video_storage\\' + img_folder.split("\\")[-1]
     if not os.path.exists(out_folder):
         os.makedirs(out_folder)
     file_address = os.path.join(out_folder, f'{out_file_name}.avi')
