@@ -3,7 +3,7 @@
 
 This work provides the implementation of the Fault Detection and Diagnosis Model proposed in the paper: "From Data to 
 Prediction: Vision-Based UAV Fault Detection and Diagnosis". This entails the pre-processing of the camera and IMU
-information, the sensor fusion model, tools for the visualization of the results.
+information, the sensor fusion model and tools for the visualization of the results.
 
 The repository contains Python code for:
 - the pre-processing of camera and IMU information, as well as the fusion of the features extracted from those 
