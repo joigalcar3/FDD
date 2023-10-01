@@ -13,13 +13,13 @@ __email__ = "jialvear@hotmail.com"
 __status__ = "Stable"
 
 # Imports
-from IMU_processing.FFT.user_input import *
-from IMU_processing.FFT.FlightDataGenerator import FlightDataGenerator
-from IMU_processing.FFT.LstmFusionModel import LstmFusionModel
-from IMU_processing.FFT.DeepNeuralFusionModel import DeepNeuralFusionModel
-from IMU_processing.FFT.plotter_helper import plot_predictions, create_confusion_matrix, \
+from user_input import *
+from FlightDataGenerator import FlightDataGenerator
+from LstmFusionModel import LstmFusionModel
+from DeepNeuralFusionModel import DeepNeuralFusionModel
+from plotter_helper import plot_predictions, create_confusion_matrix, \
     compute_maximum_dataset_sample_timesteps
-from IMU_processing.FFT.helper_func import define_callbacks, BatchLogging, convert_to_dataset
+from helper_func import define_callbacks, BatchLogging, convert_to_dataset
 
 # Obtain data set
 generator_input = {"data_base_folder": base_folder, "flight_data_number": flight_number,

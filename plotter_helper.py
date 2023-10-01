@@ -16,9 +16,9 @@ import numpy as np
 import tensorflow as tf
 import matplotlib as mpl
 import matplotlib.pyplot as plt
-from IMU_processing.FFT.helper_func import convert_to_dataset
+from helper_func import convert_to_dataset
 from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
-from IMU_processing.FFT.FlightDataGenerator import FlightDataGenerator
+from FlightDataGenerator import FlightDataGenerator
 
 mpl.use('TkAgg')
 

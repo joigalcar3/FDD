@@ -41,7 +41,7 @@ import matplotlib as mpl
 import matplotlib.pyplot as plt
 
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
-from IMU_processing.FFT.RaftBackboneTorch import RaftBackboneTorch
+from RaftBackboneTorch import RaftBackboneTorch
 
 # Limit tensorflow memory such that the pytorch model also has memory in the same machine
 gpus = tf.config.list_physical_devices('GPU')

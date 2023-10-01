@@ -14,14 +14,14 @@ __status__ = "Stable"
 
 # Imports
 from keras.layers import LeakyReLU, Activation
-from IMU_processing.FFT.helper_func import gelu
+from helper_func import gelu
 from keras.utils.generic_utils import get_custom_objects
 
 # User input for both models
 train_plot = "plotCM"  # run training ("train"), "plotCM", plot the flights' duration ("plotDUR") "plotSTFT" or "plotOF"
 type_model = "LSTM"  # what kind of model should run. "LSTM": ImuModelLSTM. "NN": DeepNeuralFusionModel
 base_folder = "D:\\Coen SSD copy\\AirSim_project"  # base directory with the flight info and sensor data directories
-checkpoint_path = "IMU_processing\\FFT\\checkpoints\\lstm_3_30_cam1_IMU1_batched_multiclass_sm20221122-162949"
+checkpoint_path = "checkpoints\\lstm_3_30_cam1_IMU1_batched_multiclass_sm20221122-162949"
 flight_number = 19  # number of the flight info file to be used
 sampling_frequency = 10  # the frequency at which the FDD pipeline runs
 start_time = 1.0  # number of initial seconds of ignored video and signal data to avoid transients

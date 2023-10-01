@@ -1,9 +1,0 @@
-pydev debugger: process 13248 is connecting
-
-2022-11-10 11:24:58.107109: I tensorflow/core/platform/cpu_feature_guard.cc:193] This TensorFlow binary is optimized with oneAPI Deep Neural Network Library (oneDNN) to use the following CPU instructions in performance-critical operations:  AVX AVX2
-To enable them in other operations, rebuild TensorFlow with the appropriate compiler flags.
-2022-11-10 11:24:59.031622: I tensorflow/core/common_runtime/gpu/gpu_device.cc:1616] Created device /job:localhost/replica:0/task:0/device:GPU:0 with 2151 MB memory:  -> device: 0, name: Quadro P2000, pci bus id: 0000:01:00.0, compute capability: 6.1
-WARNING:tensorflow:`input_shape` is undefined or non-square, or `rows` is not 224. Weights for input shape (224, 224) will be loaded as the default.
-Failure timestamp: 5.22881408
-Video length: 8.389501696
-Start of the stft slice in seconds.

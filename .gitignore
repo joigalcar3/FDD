@@ -146,20 +146,20 @@ Optical flow/example_images/Sintel_clean_ambush/
 
 Optical flow/example_images/Sintel_clean_ambush_5/
 
-IMU_processing/FFT/logs/fit/20221102-021221/train/
+logs/fit/20221102-021221/train/
 
-IMU_processing/FFT/logs/fit/20221102-021746/train/
+logs/fit/20221102-021746/train/
 
-IMU_processing/FFT/logs/fit/20221102-174505/train/
-/IMU_processing/FFT/logs/fit/
-/IMU_processing/FFT/checkpoints/
-/IMU_processing/FFT/Old/
-/IMU_processing/FFT/logs/
+logs/fit/20221102-174505/train/
+/logs/fit/
+/checkpoints/
+/Old/
+/logs/
 
 *.pickle
 
-IMU_processing/FFT/csv_logs/
-/IMU_processing/FFT/images/
-/IMU_processing/FFT/train_histories/
-/IMU_processing/FFT/train_histories/
-/IMU_processing/FFT/nvvm/
+csv_logs/
+/images/
+/train_histories/
+/train_histories/
+/nvvm/
