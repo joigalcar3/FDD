@@ -159,3 +159,7 @@ IMU_processing/FFT/logs/fit/20221102-174505/train/
 *.pickle
 
 IMU_processing/FFT/csv_logs/
+/IMU_processing/FFT/images/
+/IMU_processing/FFT/train_histories/
+/IMU_processing/FFT/train_histories/
+/IMU_processing/FFT/nvvm/
