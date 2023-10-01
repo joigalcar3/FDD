@@ -132,20 +132,6 @@ dmypy.json
 
 *.avi
 
-Optical flow/example_images/Coen_City_1024_576/
-
-Optical flow/example_images/Coen_City_1024_576_2/
-
-Optical flow/example_images/Coen_City_256_144/
-
-Optical flow/example_images/Coen_City_512_288/
-
-Optical flow/example_images/KITTI_2015/
-
-Optical flow/example_images/Sintel_clean_ambush/
-
-Optical flow/example_images/Sintel_clean_ambush_5/
-
 logs/fit/20221102-021221/train/
 
 logs/fit/20221102-021746/train/
@@ -161,5 +147,5 @@ logs/fit/20221102-174505/train/
 csv_logs/
 /images/
 /train_histories/
-/train_histories/
 /nvvm/
+/Optical flow/
