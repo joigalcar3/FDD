@@ -116,7 +116,7 @@ Hope you enjoy the code!! For any questions, comments or suggestions,
 please reach out to me at [jialvear@hotmail.com](jialvear@hotmail.com).
 
 
-    @inproceedings{dealvear2024BET,
+    @inproceedings{dealvear2024UE4,
       title={Unreal Success: Vision-Based UAV Fault Detection and Diagnosis Framework},
       author={de Alvear Cárdenas, J.I. and de Visser, C.},
       booktitle={AIAA Scitech 2024 Forum},
