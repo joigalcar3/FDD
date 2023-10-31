@@ -113,7 +113,7 @@ These documents explain:
 
 ## Contact
 Hope you enjoy the code!! For any questions, comments or suggestions, 
-please reach out to me at [jialvear@hotmail.com](jialvear@hotmail.com).
+please reach out to me at [jose.dealvearcardenas@sjsu.edu](jose.dealvearcardenas@sjsu.edu). Also, please consider citing our research work below when using this repository (the paper will be published in January 2024 and the BibTex reference will be updated around the 1st February 2024, including the DOI).
 
 
     @inproceedings{dealvear2024UE4,
